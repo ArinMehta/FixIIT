@@ -33,9 +33,9 @@
 ## Codebase Structure
 
 * **`Track1_Assignment1_ModuleA.sql`**: The complete SQL dump containing:
-    * Table definitions (DDL) for all 10 entities.
+    * Table definitions (DDL) for all 9 entities.
     * Enforced constraints (Foreign Keys, Checks, Unique).
-    * Sample data population (30+ rows per table).
+    * Sample data population (10+ rows per table).
 * **`Project_Report.pdf`**: The combined Module A & B report containing Schema details, ER Diagrams, and Normalization analysis.
 
 ---
