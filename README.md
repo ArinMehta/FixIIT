@@ -5,7 +5,7 @@
 
 ---
 
-## 👥 Team Members
+## Team Members
 
 | Name | Roll Number |
 | :--- | :--- |
@@ -17,16 +17,16 @@
 
 ---
 
-## 📌 Project Overview
+## Project Overview
 
 [cite_start]**FixIIT** is a robust, database-driven software system designed to streamline maintenance requests across the IIT Gandhinagar campus[cite: 502]. It serves as a centralized portal for reporting issues, assigning technicians, and tracking resolution progress.
 
 ### Key Features:
-* [cite_start]**Ticket Management:** Members can raise tickets for various categories (Electrical, Plumbing, IT, etc.)[cite: 502].
+* **Ticket Management:** Members can raise tickets for various categories (Electrical, Plumbing, IT, etc.)[cite: 502].
 * **Role-Based Access:** Distinct roles for Students, Faculty, Technicians, and Admins.
-* [cite_start]**Workflow Automation:** Supervisors can assign tickets to specific technicians with instructions[cite: 502].
-* [cite_start]**Feedback Loop:** Users can rate completed services and provide feedback[cite: 502].
-* [cite_start]**Communication:** Integrated commenting system for updates on specific tickets[cite: 524].
+* **Workflow Automation:** Supervisors can assign tickets to specific technicians with instructions[cite: 502].
+* **Feedback Loop:** Users can rate completed services and provide feedback[cite: 502].
+* **Communication:** Integrated commenting system for updates on specific tickets[cite: 524].
 
 ---
 
