@@ -30,7 +30,7 @@
 
 ---
 
-## 📂 Codebase Structure
+## Codebase Structure
 
 * **`fixiit_db_schema_seed.sql`**: The complete SQL dump containing:
     * [cite_start]Table definitions (DDL) for all 10 entities[cite: 531].
@@ -40,7 +40,7 @@
 
 ---
 
-## ⚙️ Technical Details
+## Technical Details
 
 * **Database System:** MySQL
 * **SQL Mode:** Strict Mode enabled (`STRICT_TRANS_TABLES`, `ONLY_FULL_GROUP_BY`, etc.) to ensure data integrity.
