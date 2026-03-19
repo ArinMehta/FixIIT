@@ -2,7 +2,7 @@ SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_F
 
 CREATE DATABASE IF NOT EXISTS fixiit_db
   DEFAULT CHARACTER SET utf8mb4
-  DEFAULT COLLATE utf8mb4_0900_ai_ci;
+  DEFAULT COLLATE utf8mb4_unicode_ci;
 USE fixiit_db;
 
 DROP TABLE IF EXISTS feedback;
@@ -23,7 +23,7 @@ CREATE TABLE roles (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (role_name),
   UNIQUE (role_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE statuses (
   status_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -33,7 +33,7 @@ CREATE TABLE statuses (
   UNIQUE (status_name),
   CHECK (is_closed IN (0,1)),
   CHECK (sort_order > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE categories (
   category_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -43,7 +43,7 @@ CREATE TABLE categories (
   UNIQUE (category_name),
   CHECK (sla_hours > 0),
   CHECK (is_active IN (0,1))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE locations (
   location_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -53,7 +53,7 @@ CREATE TABLE locations (
   type VARCHAR(30) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (building_name, floor_number, room_number)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE members (
   member_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -66,7 +66,7 @@ CREATE TABLE members (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (email),
   CHECK (age > 16)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE member_roles (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -84,7 +84,7 @@ CREATE TABLE member_roles (
   CONSTRAINT fk_member_roles_assigned_by
     FOREIGN KEY (assigned_by_member_id) REFERENCES members(member_id)
     ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE tickets (
   ticket_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -115,7 +115,7 @@ CREATE TABLE tickets (
   CONSTRAINT fk_tickets_status
     FOREIGN KEY (status_id) REFERENCES statuses(status_id)
     ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE assignments (
   assignment_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -134,7 +134,7 @@ CREATE TABLE assignments (
   CONSTRAINT fk_assignments_assigned_by
     FOREIGN KEY (assigned_by) REFERENCES members(member_id)
     ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE ticket_comments (
   ticket_id INT NOT NULL,                
@@ -152,7 +152,7 @@ CREATE TABLE ticket_comments (
   CONSTRAINT fk_ticket_comments_member
     FOREIGN KEY (member_id) REFERENCES members(member_id)
     ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE feedback (
   feedback_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -169,7 +169,7 @@ CREATE TABLE feedback (
   CONSTRAINT fk_feedback_submitted_by
     FOREIGN KEY (submitted_by_member_id) REFERENCES members(member_id)
     ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO roles (role_name, role_code) VALUES
 ('Admin', 'ADMIN'),

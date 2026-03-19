@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FixIIT - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Navbar -->
+        <div class="navbar">
+            <h2>Dashboard</h2>
+            <div class="navbar-links">
+                <button id="adminBtn" style="display: none;">Go to Admin</button>
+                <button class="logout" onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <!-- Alert Container -->
+        <div id="alert-container"></div>
+
+        <!-- User Info -->
+        <div id="userInfo" class="user-info" style="display: none;">
+            <strong id="userName"></strong>
+            <span id="adminBadge" class="admin-badge" style="display: none;">Admin</span>
+        </div>
+
+        <!-- Create Ticket Button -->
+        <button id="createTicketBtn" style="margin-bottom: 20px;">+ Create New Ticket</button>
+
+        <!-- Tickets List -->
+        <div id="ticketsContainer">
+            <div class="loading">Loading tickets...</div>
+        </div>
+    </div>
+
+    <!-- Create Ticket Modal -->
+    <div id="createTicketModal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeCreateModal()">&times;</button>
+            <h2>Create New Ticket</h2>
+            
+            <form id="createTicketForm">
+                <div class="form-group">
+                    <label for="location_id">Location</label>
+                    <select id="location_id" name="location_id" required>
+                        <option value="">Select a location...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="category_id">Category</label>
+                    <select id="category_id" name="category_id" required>
+                        <option value="">Select a category...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" placeholder="Describe your issue..." required></textarea>
+                </div>
+
+                <button type="submit" id="submitBtn">Create Ticket</button>
+                <button type="button" class="secondary" onclick="closeCreateModal()">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Token management
+        const TokenManager = {
+            set: function(token) {
+                localStorage.setItem('auth_token', token);
+            },
+            get: function() {
+                return localStorage.getItem('auth_token');
+            },
+            clear: function() {
+                localStorage.removeItem('auth_token');
+            },
+            exists: function() {
+                return !!this.get();
+            }
+        };
+
+        // API communication
+        const API = {
+            baseURL: window.location.origin,
+            
+            request: async function(endpoint, options = {}) {
+                const url = this.baseURL + endpoint;
+                const headers = {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                };
+
+                const token = TokenManager.get();
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                try {
+                    const response = await fetch(url, {
+                        ...options,
+                        headers
+                    });
+                    
+                    const data = await response.json();
+                    return {
+                        success: response.ok,
+                        status: response.status,
+                        data: data
+                    };
+                } catch (error) {
+                    return {
+                        success: false,
+                        status: 0,
+                        data: { error: error.message }
+                    };
+                }
+            },
+
+            isAuth: async function() {
+                return this.request('/isAuth', { method: 'GET' });
+            },
+
+            getTickets: async function() {
+                return this.request('/tickets', { method: 'GET' });
+            },
+
+            createTicket: async function(locationId, categoryId, description) {
+                return this.request('/tickets', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        location_id: locationId,
+                        category_id: categoryId,
+                        description: description
+                    })
+                });
+            }
+        };
+
+        // UI utilities
+        const UI = {
+            showAlert: function(message, type = 'info') {
+                const container = document.getElementById('alert-container');
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `alert ${type}`;
+                alertDiv.textContent = message;
+                container.innerHTML = '';
+                container.appendChild(alertDiv);
+                
+                if (type === 'success') {
+                    setTimeout(() => {
+                        alertDiv.remove();
+                    }, 3000);
+                }
+            }
+        };
+
+        // Logout
+        function logout() {
+            TokenManager.clear();
+            window.location.href = '/';
+        }
+
+        // Modal functions
+        function openCreateModal() {
+            document.getElementById('createTicketModal').classList.add('show');
+        }
+
+        function closeCreateModal() {
+            document.getElementById('createTicketModal').classList.remove('show');
+            document.getElementById('createTicketForm').reset();
+        }
+
+        // Load user info
+        async function loadUserInfo() {
+            const result = await API.isAuth();
+            
+            if (!result.success) {
+                TokenManager.clear();
+                window.location.href = '/';
+                return null;
+            }
+
+            const user = result.data;
+            document.getElementById('userName').textContent = `${user.first_name} ${user.last_name}`;
+            document.getElementById('userInfo').style.display = 'block';
+
+            if (user.is_admin) {
+                document.getElementById('adminBadge').style.display = 'inline-block';
+                document.getElementById('adminBtn').style.display = 'inline-block';
+            }
+
+            return user;
+        }
+
+        // Load tickets
+        async function loadTickets() {
+            const container = document.getElementById('ticketsContainer');
+            container.innerHTML = '<div class="loading">Loading tickets...</div>';
+
+            const result = await API.getTickets();
+
+            if (!result.success) {
+                container.innerHTML = '';
+                UI.showAlert('Failed to load tickets', 'error');
+                return;
+            }
+
+            const tickets = result.data.tickets || [];
+            container.innerHTML = '';
+
+            if (tickets.length === 0) {
+                container.innerHTML = '<div class="no-tickets">No tickets yet. Create one to get started!</div>';
+                return;
+            }
+
+            const html = tickets.map(ticket => `
+                <div class="ticket-card">
+                    <h3>Ticket #${ticket.ticket_id}</h3>
+                    <div class="ticket-meta">
+                        <span>Location: ${ticket.location_id}</span>
+                        <span>Category: ${ticket.category_id}</span>
+                        <span>Created: ${new Date(ticket.created_date).toLocaleDateString()}</span>
+                    </div>
+                    <div class="ticket-description">${escapeHtml(ticket.description)}</div>
+                    <div class="status-badge open">Status ID: ${ticket.status_id}</div>
+                </div>
+            `).join('');
+
+            container.innerHTML = html;
+        }
+
+        // Create ticket
+        document.getElementById('createTicketForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const locationId = document.getElementById('location_id').value;
+            const categoryId = document.getElementById('category_id').value;
+            const description = document.getElementById('description').value;
+
+            if (!locationId || !categoryId || !description) {
+                UI.showAlert('Please fill all fields', 'error');
+                return;
+            }
+
+            const result = await API.createTicket(locationId, categoryId, description);
+
+            if (result.success) {
+                UI.showAlert('Ticket created successfully!', 'success');
+                closeCreateModal();
+                loadTickets();
+            } else {
+                const errorMsg = result.data.error || 'Failed to create ticket';
+                UI.showAlert(errorMsg, 'error');
+            }
+        });
+
+        // Event listeners
+        document.getElementById('createTicketBtn').addEventListener('click', openCreateModal);
+        document.getElementById('adminBtn').addEventListener('click', () => {
+            window.location.href = '/admin';
+        });
+
+        // Close modal on outside click
+        window.addEventListener('click', (e) => {
+            const modal = document.getElementById('createTicketModal');
+            if (e.target === modal) {
+                closeCreateModal();
+            }
+        });
+
+        // Helper to escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Initialize
+        async function init() {
+            if (!TokenManager.exists()) {
+                window.location.href = '/';
+                return;
+            }
+
+            await loadUserInfo();
+            await loadTickets();
+        }
+
+        // Load sample data into dropdowns
+        // In a real app, these would come from API endpoints
+        document.getElementById('location_id').innerHTML = `
+            <option value="">Select a location...</option>
+            <option value="1">Building A</option>
+            <option value="2">Building B</option>
+            <option value="3">Auditorium</option>
+            <option value="4">Library</option>
+            <option value="5">Cafeteria</option>
+        `;
+
+        document.getElementById('category_id').innerHTML = `
+            <option value="">Select a category...</option>
+            <option value="1">Plumbing</option>
+            <option value="2">Electrical</option>
+            <option value="3">HVAC</option>
+            <option value="4">Cleaning</option>
+            <option value="5">Other</option>
+        `;
+
+        // Start app
+        init();
+    </script>
+</body>
+</html>
