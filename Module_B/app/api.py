@@ -38,6 +38,14 @@ def dashboard():
     return render_template('dashboard.html')
 
 
+@api.route('/portfolio', methods=['GET'])
+def portfolio_page():
+    """
+    Portfolio page - serves the member portfolio template.
+    """
+    return render_template('portfolio.html')
+
+
 @api.route('/admin', methods=['GET'])
 def admin_panel():
     """
@@ -131,6 +139,117 @@ def is_auth():
         member_id = getattr(g, 'member_id', None)
         log_api_event('/isAuth', 'ERROR', str(e), member_id)
         return jsonify({'error': 'Authentication check failed'}), 500
+
+
+@api.route('/portfolio/me', methods=['GET'])
+@login_required
+def get_my_portfolio():
+    """
+    Get member portfolio for the currently authenticated user.
+    Requires: Authorization header with Bearer token
+    """
+    try:
+        member_id = g.member_id
+
+        query = """
+            SELECT
+                m.member_id,
+                m.name,
+                m.email,
+                m.contact_number,
+                m.address,
+                mp.bio,
+                mp.skills,
+                mp.github_url,
+                mp.linkedin_url,
+                mp.updated_at
+            FROM members m
+            LEFT JOIN member_portfolio mp
+              ON mp.member_id = m.member_id
+            WHERE m.member_id = %s
+        """
+        record = fetch_one(query, (member_id,))
+
+        if not record:
+            log_api_event('/portfolio/me', 'FAILED', f'Portfolio not found for member {member_id}', member_id)
+            return jsonify({'error': 'Member not found'}), 404
+
+        response = {
+            'member_id': record.get('member_id'),
+            'name': record.get('name'),
+            'email': record.get('email'),
+            'contact_number': record.get('contact_number'),
+            'address': record.get('address'),
+            'bio': record.get('bio'),
+            'skills': record.get('skills'),
+            'github_url': record.get('github_url'),
+            'linkedin_url': record.get('linkedin_url'),
+            'updated_at': str(record.get('updated_at')) if record.get('updated_at') else None
+        }
+        log_api_event('/portfolio/me', 'SUCCESS', 'Fetched member portfolio', member_id)
+        return jsonify(response), 200
+
+    except Exception as e:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event('/portfolio/me', 'ERROR', str(e), member_id)
+        return jsonify({'error': 'Failed to fetch portfolio'}), 500
+
+
+@api.route('/portfolio/me', methods=['PUT'])
+@login_required
+def update_my_portfolio():
+    """
+    Create or update member portfolio for the current user.
+    Requires: Authorization header with Bearer token
+    """
+    try:
+        member_id = g.member_id
+        data = request.get_json()
+
+        if not data:
+            log_api_event('/portfolio/me (PUT)', 'FAILED', 'No update data provided', member_id)
+            return jsonify({'error': 'No data to update'}), 400
+
+        def clean_optional(value, max_len):
+            if value is None:
+                return None
+            text = str(value).strip()
+            if not text:
+                return None
+            if len(text) > max_len:
+                raise ValueError(f'Field exceeds max length of {max_len}')
+            return text
+
+        try:
+            bio = clean_optional(data.get('bio'), 2000)
+            skills = clean_optional(data.get('skills'), 500)
+            github_url = clean_optional(data.get('github_url'), 255)
+            linkedin_url = clean_optional(data.get('linkedin_url'), 255)
+        except ValueError as exc:
+            log_api_event('/portfolio/me (PUT)', 'FAILED', str(exc), member_id)
+            return jsonify({'error': str(exc)}), 400
+
+        query = """
+            INSERT INTO member_portfolio (
+                member_id, bio, skills, github_url, linkedin_url, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            ON DUPLICATE KEY UPDATE
+                bio = VALUES(bio),
+                skills = VALUES(skills),
+                github_url = VALUES(github_url),
+                linkedin_url = VALUES(linkedin_url),
+                updated_at = NOW()
+        """
+        execute_write(query, (member_id, bio, skills, github_url, linkedin_url))
+
+        log_api_event('/portfolio/me (PUT)', 'SUCCESS', 'Updated member portfolio', member_id)
+        return jsonify({'message': 'Portfolio updated successfully'}), 200
+
+    except Exception as e:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event('/portfolio/me (PUT)', 'ERROR', str(e), member_id)
+        return jsonify({'error': 'Failed to update portfolio'}), 500
 
 
 @api.route('/tickets', methods=['GET'])

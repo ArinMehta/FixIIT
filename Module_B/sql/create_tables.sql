@@ -18,3 +18,16 @@ CREATE TABLE IF NOT EXISTS Credentials (
     FOREIGN KEY (member_id) REFERENCES members(member_id)
     ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS member_portfolio (
+  member_id INT NOT NULL,
+  bio TEXT NULL,
+  skills VARCHAR(500) NULL,
+  github_url VARCHAR(255) NULL,
+  linkedin_url VARCHAR(255) NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (member_id),
+  CONSTRAINT fk_member_portfolio_member
+    FOREIGN KEY (member_id) REFERENCES members(member_id)
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -12,6 +12,7 @@
         <div class="navbar">
             <h2>Dashboard</h2>
             <div class="navbar-links">
+                <button id="portfolioBtn">My Profile</button>
                 <button id="adminBtn" style="display: none;">Go to Admin</button>
                 <button class="logout" onclick="logout()">Logout</button>
             </div>
@@ -261,6 +262,9 @@
 
         // Event listeners
         document.getElementById('createTicketBtn').addEventListener('click', openCreateModal);
+        document.getElementById('portfolioBtn').addEventListener('click', () => {
+            window.location.href = '/portfolio';
+        });
         document.getElementById('adminBtn').addEventListener('click', () => {
             window.location.href = '/admin';
         });

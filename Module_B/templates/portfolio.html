@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FixIIT - My Profile</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="navbar">
+            <h2>My Profile</h2>
+            <div class="navbar-links">
+                <button onclick="goToDashboard()">Back to Dashboard</button>
+                <button class="logout" onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <p style="margin-bottom: 16px; color: #666; font-size: 14px;">Manage your profile information</p>
+
+        <div id="alert-container"></div>
+
+        <div id="memberInfo" class="user-info" style="display: none;">
+            <strong id="memberName"></strong>
+            <div style="margin-top: 8px; color: #666; font-size: 13px;">
+                <div id="memberEmail"></div>
+                <div id="memberContact"></div>
+                <div id="memberAddress"></div>
+                <div id="updatedAt"></div>
+            </div>
+        </div>
+
+        <form id="portfolioForm">
+            <div class="form-group">
+                <label for="bio">Bio</label>
+                <textarea id="bio" name="bio" placeholder="Write a short bio..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="skills">Skills (comma-separated)</label>
+                <input type="text" id="skills" name="skills" placeholder="e.g., plumbing,documentation,frontend">
+            </div>
+
+            <div class="form-group">
+                <label for="github_url">GitHub URL</label>
+                <input type="text" id="github_url" name="github_url" placeholder="https://github.com/your-id">
+            </div>
+
+            <div class="form-group">
+                <label for="linkedin_url">LinkedIn URL</label>
+                <input type="text" id="linkedin_url" name="linkedin_url" placeholder="https://linkedin.com/in/your-id">
+            </div>
+
+            <button type="submit" id="saveBtn">Save Profile</button>
+        </form>
+    </div>
+
+    <script>
+        const TokenManager = {
+            set: function(token) {
+                localStorage.setItem('auth_token', token);
+            },
+            get: function() {
+                return localStorage.getItem('auth_token');
+            },
+            clear: function() {
+                localStorage.removeItem('auth_token');
+            },
+            exists: function() {
+                return !!this.get();
+            }
+        };
+
+        const API = {
+            baseURL: window.location.origin,
+
+            request: async function(endpoint, options = {}) {
+                const url = this.baseURL + endpoint;
+                const headers = {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                };
+
+                const token = TokenManager.get();
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                try {
+                    const response = await fetch(url, {
+                        ...options,
+                        headers
+                    });
+
+                    const data = await response.json();
+                    return {
+                        success: response.ok,
+                        status: response.status,
+                        data: data
+                    };
+                } catch (error) {
+                    return {
+                        success: false,
+                        status: 0,
+                        data: { error: error.message }
+                    };
+                }
+            },
+
+            getPortfolio: async function() {
+                return this.request('/portfolio/me', { method: 'GET' });
+            },
+
+            updatePortfolio: async function(payload) {
+                return this.request('/portfolio/me', {
+                    method: 'PUT',
+                    body: JSON.stringify(payload)
+                });
+            }
+        };
+
+        const UI = {
+            showAlert: function(message, type = 'info') {
+                const container = document.getElementById('alert-container');
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `alert ${type}`;
+                alertDiv.textContent = message;
+                container.innerHTML = '';
+                container.appendChild(alertDiv);
+
+                if (type === 'success') {
+                    setTimeout(() => {
+                        alertDiv.remove();
+                    }, 3000);
+                }
+            },
+
+            setLoading: function(isLoading) {
+                const btn = document.getElementById('saveBtn');
+                btn.disabled = isLoading;
+                btn.textContent = isLoading ? 'Saving...' : 'Save Profile';
+            }
+        };
+
+        function goToDashboard() {
+            window.location.href = '/dashboard';
+        }
+
+        function logout() {
+            TokenManager.clear();
+            window.location.href = '/';
+        }
+
+        function fillPortfolio(data) {
+            document.getElementById('memberName').textContent = data.name || 'Unknown Member';
+            document.getElementById('memberEmail').textContent = `Email: ${data.email || '-'}`;
+            document.getElementById('memberContact').textContent = `Contact: ${data.contact_number || '-'}`;
+            document.getElementById('memberAddress').textContent = `Address: ${data.address || '-'}`;
+            document.getElementById('updatedAt').textContent = `Last updated: ${data.updated_at || 'Never'}`;
+            document.getElementById('memberInfo').style.display = 'block';
+
+            document.getElementById('bio').value = data.bio || '';
+            document.getElementById('skills').value = data.skills || '';
+            document.getElementById('github_url').value = data.github_url || '';
+            document.getElementById('linkedin_url').value = data.linkedin_url || '';
+        }
+
+        async function loadPortfolio() {
+            const result = await API.getPortfolio();
+
+            if (!result.success) {
+                if (result.status === 401) {
+                    TokenManager.clear();
+                    window.location.href = '/';
+                    return;
+                }
+                UI.showAlert(result.data.error || 'Failed to load profile', 'error');
+                return;
+            }
+
+            fillPortfolio(result.data);
+        }
+
+        document.getElementById('portfolioForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const payload = {
+                bio: document.getElementById('bio').value,
+                skills: document.getElementById('skills').value,
+                github_url: document.getElementById('github_url').value,
+                linkedin_url: document.getElementById('linkedin_url').value
+            };
+
+            UI.setLoading(true);
+            const result = await API.updatePortfolio(payload);
+            UI.setLoading(false);
+
+            if (!result.success) {
+                UI.showAlert(result.data.error || 'Failed to save profile', 'error');
+                return;
+            }
+
+            UI.showAlert('Profile updated successfully!', 'success');
+            await loadPortfolio();
+        });
+
+        async function init() {
+            if (!TokenManager.exists()) {
+                window.location.href = '/';
+                return;
+            }
+
+            await loadPortfolio();
+        }
+
+        init();
+    </script>
+</body>
+</html>
