@@ -1,0 +1,5 @@
+phase,query_id,description,iterations,avg_ms,min_ms,max_ms,p95_ms,captured_at_utc
+after,LOGIN_QUERY,Auth lookup join by username,200,0.097675,0.084791,0.189583,0.114625,2026-03-22T00:36:54Z
+after,ADMIN_CHECK_QUERY,RBAC admin membership check,400,0.058842,0.051,0.094625,0.067417,2026-03-22T00:36:54Z
+after,USER_TICKETS_QUERY,User ticket listing with filter + order,300,0.065415,0.062458,0.091833,0.072875,2026-03-22T00:36:54Z
+after,ADMIN_TICKETS_QUERY,Admin ticket listing ordered by created_at,150,0.110508,0.105708,0.141708,0.123875,2026-03-22T00:36:54Z

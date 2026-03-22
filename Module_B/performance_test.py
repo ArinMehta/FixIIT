@@ -1,419 +1,338 @@
 """
-Phase 6: Performance Testing and Optimization Report
+Module B performance benchmark + EXPLAIN evidence generator.
 
-This script benchmarks key database operations and generates a performance report.
-Measures query execution time with and without indexes to show optimization impact.
+This script creates reproducible before/after artifacts for:
+1. key SELECT queries used by the current Flask app
+2. index optimization impact
+3. EXPLAIN FORMAT=JSON evidence
 """
+
+from __future__ import annotations
+
+import csv
+import json
+import os
+import statistics
+import time
+from datetime import datetime, timezone
 
 import mysql.connector
 from mysql.connector import Error
-import time
-import csv
-from datetime import datetime
-from config import DB_CONFIG, JWT_CONFIG
 
-class PerformanceTester:
-    def __init__(self):
-        self.connection = None
-        self.results = []
-        self.connect()
+from config import DB_CONFIG
 
-    def connect(self):
-        """Connect to MySQL database"""
-        try:
-            self.connection = mysql.connector.connect(**DB_CONFIG)
-            print("✓ Connected to MySQL database")
-        except Error as e:
-            print(f"✗ Error connecting to database: {e}")
-            raise
 
-    def disconnect(self):
-        """Close database connection"""
-        if self.connection:
-            self.connection.close()
-            print("✓ Disconnected from database")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SQL_DIR = os.path.join(BASE_DIR, "sql")
+RESULTS_DIR = os.path.join(BASE_DIR, "performance", "results")
 
-    def measure_query_time(self, query, params=None, iterations=100):
-        """
-        Measure average execution time of a query over multiple iterations
-        Returns: average time in milliseconds
-        """
-        cursor = self.connection.cursor()
-        times = []
+DROP_INDEXES_SQL = os.path.join(SQL_DIR, "drop_indexes.sql")
+CREATE_INDEXES_SQL = os.path.join(SQL_DIR, "create_indexes.sql")
 
-        for _ in range(iterations):
-            start = time.time()
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            cursor.fetchall()
-            end = time.time()
-            times.append((end - start) * 1000)  # Convert to milliseconds
 
-        cursor.close()
-        avg_time = sum(times) / len(times)
-        return avg_time
-
-    def test_login_query(self):
-        """
-        Test: Authentication query joining Credentials -> Members -> Member_Roles -> Roles
-        This is one of the most frequently used queries.
-        """
-        print("\n" + "="*70)
-        print("TEST 1: LOGIN QUERY (Credentials join Members join Member_Roles join Roles)")
-        print("="*70)
-
-        query = """
-            SELECT c.member_id, c.username, m.first_name, m.last_name, m.email, 
-                   m.contact_number, m.address, GROUP_CONCAT(r.role_code) as role_codes
-            FROM credentials c
-            JOIN members m ON c.member_id = m.member_id
-            LEFT JOIN member_roles mr ON m.member_id = mr.member_id
-            LEFT JOIN roles r ON mr.role_id = r.role_id
+QUERY_CASES = [
+    {
+        "query_id": "LOGIN_QUERY",
+        "description": "Auth lookup join by username",
+        "query": """
+            SELECT
+                m.member_id,
+                m.name,
+                m.email,
+                m.contact_number,
+                m.address,
+                c.username,
+                c.password_hash,
+                GROUP_CONCAT(DISTINCT r.role_code ORDER BY r.role_code) AS role_codes
+            FROM Credentials c
+            JOIN members m
+              ON m.member_id = c.member_id
+            LEFT JOIN member_roles mr
+              ON mr.member_id = m.member_id
+            LEFT JOIN roles r
+              ON r.role_id = mr.role_id
             WHERE c.username = %s
-            GROUP BY c.member_id
-        """
-
-        try:
-            avg_time = self.measure_query_time(query, ('admin',), iterations=100)
-            print(f"✓ Average execution time: {avg_time:.4f} ms (100 iterations)")
-            print(f"  Estimated time for 1000 requests: {avg_time * 10:.2f} ms")
-            print(f"  Estimated requests/second: {1000 / avg_time:.0f}")
-            
-            self.results.append({
-                'test_name': 'LOGIN_QUERY',
-                'description': 'Credentials → Members → Member_Roles → Roles join',
-                'avg_time_ms': avg_time,
-                'iterations': 100
-            })
-        except Exception as e:
-            print(f"✗ Test failed: {e}")
-
-    def test_get_member_admin_status(self):
-        """
-        Test: Check if member is admin (frequent operation in RBAC)
-        Queries Member_Roles joined with Roles where role_code='ADMIN'
-        """
-        print("\n" + "="*70)
-        print("TEST 2: ADMIN STATUS CHECK (Member_Roles join Roles)")
-        print("="*70)
-
-        query = """
-            SELECT COUNT(*) FROM member_roles mr
-            JOIN roles r ON mr.role_id = r.role_id
-            WHERE mr.member_id = %s AND r.role_code = 'ADMIN'
-        """
-
-        try:
-            avg_time = self.measure_query_time(query, (28,), iterations=500)
-            print(f"✓ Average execution time: {avg_time:.4f} ms (500 iterations)")
-            print(f"  Estimated time for 5000 requests: {avg_time * 10:.2f} ms")
-            print(f"  Estimated requests/second: {1000 / avg_time:.0f}")
-            
-            self.results.append({
-                'test_name': 'ADMIN_CHECK',
-                'description': 'Check member admin status via Member_Roles + Roles',
-                'avg_time_ms': avg_time,
-                'iterations': 500
-            })
-        except Exception as e:
-            print(f"✗ Test failed: {e}")
-
-    def test_get_user_tickets(self):
-        """
-        Test: Fetch all tickets for a user (frequent read operation)
-        """
-        print("\n" + "="*70)
-        print("TEST 3: GET USER TICKETS (Tickets with filtering by member_id)")
-        print("="*70)
-
-        query = """
-            SELECT ticket_id, member_id, location_id, category_id, 
-                   description, status_id, created_date, updated_date
+            GROUP BY
+                m.member_id,
+                m.name,
+                m.email,
+                m.contact_number,
+                m.address,
+                c.username,
+                c.password_hash
+        """,
+        "params": ("admin",),
+        "iterations": 200,
+    },
+    {
+        "query_id": "ADMIN_CHECK_QUERY",
+        "description": "RBAC admin membership check",
+        "query": """
+            SELECT 1 AS is_admin
+            FROM member_roles mr
+            JOIN roles r
+              ON r.role_id = mr.role_id
+            WHERE mr.member_id = %s
+              AND UPPER(r.role_code) = 'ADMIN'
+            LIMIT 1
+        """,
+        "params": (28,),
+        "iterations": 400,
+    },
+    {
+        "query_id": "USER_TICKETS_QUERY",
+        "description": "User ticket listing with filter + order",
+        "query": """
+            SELECT ticket_id, title, description, member_id, location_id, category_id,
+                   priority, status_id, created_at, updated_at
             FROM tickets
             WHERE member_id = %s
-            ORDER BY created_date DESC
-        """
+            ORDER BY created_at DESC
+        """,
+        "params": (2,),
+        "iterations": 300,
+    },
+    {
+        "query_id": "ADMIN_TICKETS_QUERY",
+        "description": "Admin ticket listing ordered by created_at",
+        "query": """
+            SELECT ticket_id, title, description, member_id, location_id, category_id,
+                   priority, status_id, created_at, updated_at
+            FROM tickets
+            ORDER BY created_at DESC
+        """,
+        "params": (),
+        "iterations": 150,
+    },
+]
 
-        try:
-            avg_time = self.measure_query_time(query, (2,), iterations=200)
-            print(f"✓ Average execution time: {avg_time:.4f} ms (200 iterations)")
-            print(f"  Estimated time for 2000 requests: {avg_time * 10:.2f} ms")
-            print(f"  Estimated requests/second: {1000 / avg_time:.0f}")
-            
-            self.results.append({
-                'test_name': 'GET_USER_TICKETS',
-                'description': 'Fetch tickets filtered by member_id with ORDER BY',
-                'avg_time_ms': avg_time,
-                'iterations': 200
-            })
-        except Exception as e:
-            print(f"✗ Test failed: {e}")
 
-    def test_create_ticket(self):
-        """
-        Test: Create a new ticket (write operation)
-        """
-        print("\n" + "="*70)
-        print("TEST 4: CREATE TICKET (INSERT operation)")
-        print("="*70)
+def utc_now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        query = """
-            INSERT INTO tickets (member_id, location_id, category_id, description, status_id)
-            VALUES (%s, %s, %s, %s, 1)
-        """
 
-        cursor = self.connection.cursor()
-        times = []
+def p95(values):
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    idx = int(0.95 * (len(ordered) - 1))
+    return ordered[idx]
 
-        for i in range(50):
-            start = time.time()
-            try:
-                cursor.execute(query, (2, 1, 1, f'Test ticket {i}', ))
-                self.connection.commit()
-                end = time.time()
-                times.append((end - start) * 1000)
-            except Exception as e:
-                self.connection.rollback()
-                print(f"  Warning: Insert {i} failed: {e}")
 
-        cursor.close()
-        
-        if times:
-            avg_time = sum(times) / len(times)
-            print(f"✓ Average execution time: {avg_time:.4f} ms (50 inserts)")
-            print(f"  Estimated time for 500 inserts: {avg_time * 10:.2f} ms")
-            print(f"  Estimated inserts/second: {1000 / avg_time:.0f}")
-            
-            self.results.append({
-                'test_name': 'CREATE_TICKET',
-                'description': 'INSERT new ticket record',
-                'avg_time_ms': avg_time,
-                'iterations': 50
-            })
-        else:
-            print("✗ No successful insertions to measure")
+def ensure_dirs():
+    os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    def test_update_ticket(self):
-        """
-        Test: Update ticket status (write operation)
-        """
-        print("\n" + "="*70)
-        print("TEST 5: UPDATE TICKET (UPDATE operation)")
-        print("="*70)
 
-        # First get some ticket IDs
-        cursor = self.connection.cursor()
-        cursor.execute("SELECT ticket_id FROM tickets LIMIT 50")
-        ticket_ids = [row[0] for row in cursor.fetchall()]
-        cursor.close()
+def get_connection():
+    return mysql.connector.connect(**DB_CONFIG)
 
-        if not ticket_ids:
-            print("✗ No tickets found for update test")
-            return
 
-        query = "UPDATE tickets SET status_id = %s, updated_date = NOW() WHERE ticket_id = %s"
-        
-        cursor = self.connection.cursor()
-        times = []
+def execute_sql_file(connection, path):
+    with open(path, "r", encoding="utf-8") as sql_file:
+        sql = sql_file.read()
 
-        for idx, ticket_id in enumerate(ticket_ids):
-            start = time.time()
-            try:
-                cursor.execute(query, (2, ticket_id))
-                self.connection.commit()
-                end = time.time()
-                times.append((end - start) * 1000)
-            except Exception as e:
-                self.connection.rollback()
-                print(f"  Warning: Update failed: {e}")
+    statements = []
+    current = []
+    in_single = False
+    in_double = False
+    in_backtick = False
+    escape_next = False
 
-        cursor.close()
+    for ch in sql:
+        if escape_next:
+            current.append(ch)
+            escape_next = False
+            continue
 
-        if times:
-            avg_time = sum(times) / len(times)
-            print(f"✓ Average execution time: {avg_time:.4f} ms ({len(times)} updates)")
-            print(f"  Estimated time for {len(times)*10} updates: {avg_time * 10:.2f} ms")
-            print(f"  Estimated updates/second: {1000 / avg_time:.0f}")
-            
-            self.results.append({
-                'test_name': 'UPDATE_TICKET',
-                'description': 'UPDATE ticket status with updated_date',
-                'avg_time_ms': avg_time,
-                'iterations': len(times)
-            })
-        else:
-            print("✗ No successful updates to measure")
+        if ch == "\\" and (in_single or in_double):
+            current.append(ch)
+            escape_next = True
+            continue
 
-    def test_delete_ticket(self):
-        """
-        Test: Delete ticket (write operation)
-        """
-        print("\n" + "="*70)
-        print("TEST 6: DELETE TICKET (DELETE operation)")
-        print("="*70)
+        if ch == "'" and not in_double and not in_backtick:
+            in_single = not in_single
+            current.append(ch)
+            continue
 
-        # First get some ticket IDs to delete
-        cursor = self.connection.cursor()
-        cursor.execute("SELECT ticket_id FROM tickets WHERE member_id = 2 LIMIT 30")
-        ticket_ids = [row[0] for row in cursor.fetchall()]
+        if ch == '"' and not in_single and not in_backtick:
+            in_double = not in_double
+            current.append(ch)
+            continue
+
+        if ch == "`" and not in_single and not in_double:
+            in_backtick = not in_backtick
+            current.append(ch)
+            continue
+
+        if ch == ";" and not in_single and not in_double and not in_backtick:
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement)
+            current = []
+            continue
+
+        current.append(ch)
+
+    trailing = "".join(current).strip()
+    if trailing:
+        statements.append(trailing)
+
+    cursor = connection.cursor(buffered=True)
+    try:
+        for statement in statements:
+            cursor.execute(statement)
+            if cursor.with_rows:
+                cursor.fetchall()
+        connection.commit()
+    finally:
         cursor.close()
 
-        if not ticket_ids:
-            print("✗ No tickets found for delete test")
-            return
 
-        query = "DELETE FROM tickets WHERE ticket_id = %s"
-        
-        cursor = self.connection.cursor()
-        times = []
-
-        for ticket_id in ticket_ids:
-            start = time.time()
-            try:
-                cursor.execute(query, (ticket_id,))
-                self.connection.commit()
-                end = time.time()
-                times.append((end - start) * 1000)
-            except Exception as e:
-                self.connection.rollback()
-                print(f"  Warning: Delete failed: {e}")
-
-        cursor.close()
-
-        if times:
-            avg_time = sum(times) / len(times)
-            print(f"✓ Average execution time: {avg_time:.4f} ms ({len(times)} deletes)")
-            print(f"  Estimated time for {len(times)*10} deletes: {avg_time * 10:.2f} ms")
-            print(f"  Estimated deletes/second: {1000 / avg_time:.0f}")
-            
-            self.results.append({
-                'test_name': 'DELETE_TICKET',
-                'description': 'DELETE ticket record',
-                'avg_time_ms': avg_time,
-                'iterations': len(times)
-            })
-        else:
-            print("✗ No successful deletes to measure")
-
-    def show_index_status(self):
-        """
-        Display current indexes on key tables
-        """
-        print("\n" + "="*70)
-        print("CURRENT DATABASE INDEXES")
-        print("="*70)
-
-        cursor = self.connection.cursor()
-        tables = ['credentials', 'members', 'member_roles', 'roles', 'tickets']
-
-        for table in tables:
-            try:
-                cursor.execute(f"SHOW INDEXES FROM {table}")
-                indexes = cursor.fetchall()
-                print(f"\n{table}:")
-                if indexes:
-                    for idx in indexes:
-                        print(f"  - {idx[2]}: {idx[4]} ({idx[5]})")
-                else:
-                    print(f"  (No indexes)")
-            except Exception as e:
-                print(f"  Error: {e}")
-
-        cursor.close()
-
-    def generate_report(self):
-        """
-        Generate comprehensive performance report
-        """
-        print("\n" + "="*70)
-        print("PERFORMANCE SUMMARY")
-        print("="*70)
-
-        if not self.results:
-            print("No test results to summarize")
-            return
-
-        # Sort by execution time
-        sorted_results = sorted(self.results, key=lambda x: x['avg_time_ms'], reverse=True)
-
-        print("\nTests ranked by execution time (slowest first):")
-        print(f"{'Rank':<6} {'Test Name':<25} {'Avg Time (ms)':<15} {'Requests/sec':<15}")
-        print("-" * 65)
-
-        for i, result in enumerate(sorted_results, 1):
-            req_per_sec = 1000 / result['avg_time_ms']
-            print(f"{i:<6} {result['test_name']:<25} {result['avg_time_ms']:<15.4f} {req_per_sec:<15.0f}")
-
-        # Calculate total average time per user request (assuming all tests represent typical usage)
-        total_avg = sum(r['avg_time_ms'] for r in self.results) / len(self.results)
-        print(f"\n{'AVERAGE':<6} {'All tests':<25} {total_avg:<15.4f} {1000/total_avg:<15.0f}")
-
-        # Optimization recommendations
-        print("\n" + "="*70)
-        print("OPTIMIZATION RECOMMENDATIONS")
-        print("="*70)
-
-        print("""
-1. QUERY OPTIMIZATION:
-   ✓ Indexes created on:
-     - Credentials.username (for fast login lookups)
-     - Tickets.member_id (for filtering by user)
-     - Member_Roles.member_id (for role lookups)
-     - Roles.role_code (for ADMIN checks)
-   
-2. CACHING OPPORTUNITIES:
-   - Cache admin status for 5 minutes per user
-   - Cache user's tickets for 1 minute
-   - Cache role lookups
-   
-3. DATABASE CONNECTION POOLING:
-   - Current: Single connection per request
-   - Recommended: Use connection pool (10-20 connections)
-   - Expected improvement: 30-50% faster response times
-   
-4. WRITE OPTIMIZATION:
-   - Use batch inserts for multiple tickets
-   - Consider async logging instead of synchronous
-   - Expected improvement: 20-40% faster writes
-   
-5. QUERY IMPROVEMENTS:
-   - Use SELECT ... WHERE instead of SELECT all then filter
-   - Avoid GROUP_CONCAT when possible (use application-level aggregation)
-   - Use pagination for large result sets
-
-6. SCALING STRATEGY:
-   - Read replicas for ticket queries
-   - Write master for authentication/member_roles
-   - Expected improvement: 5x faster reads at scale
-        """)
-
-    def run_all_tests(self):
-        """Run all performance tests"""
-        print("\n" + "█" * 70)
-        print("FIXIIT MODULE B - PERFORMANCE TESTING SUITE")
-        print("█" * 70)
-        print(f"Test started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-        try:
-            self.show_index_status()
-            self.test_login_query()
-            self.test_get_member_admin_status()
-            self.test_get_user_tickets()
-            self.test_create_ticket()
-            self.test_update_ticket()
-            self.test_delete_ticket()
-            self.generate_report()
-        except Exception as e:
-            print(f"\n✗ Error during testing: {e}")
-        finally:
-            self.disconnect()
-
-        print(f"\nTest completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("█" * 70)
+def run_query_timing(connection, query, params, iterations):
+    durations = []
+    with connection.cursor() as cursor:
+        for _ in range(iterations):
+            start = time.perf_counter()
+            cursor.execute(query, params)
+            cursor.fetchall()
+            end = time.perf_counter()
+            durations.append((end - start) * 1000.0)
+    return durations
 
 
-if __name__ == '__main__':
-    tester = PerformanceTester()
-    tester.run_all_tests()
+def run_explain_json(connection, query, params):
+    explain_sql = "EXPLAIN FORMAT=JSON " + query
+    with connection.cursor() as cursor:
+        cursor.execute(explain_sql, params)
+        row = cursor.fetchone()
+    plan_text = row[0] if row else "{}"
+    try:
+        return json.loads(plan_text)
+    except json.JSONDecodeError:
+        return {"raw_plan": plan_text}
+
+
+def collect_phase(connection, phase_name):
+    timing_rows = []
+    explain_rows = []
+
+    for case in QUERY_CASES:
+        durations = run_query_timing(
+            connection=connection,
+            query=case["query"],
+            params=case["params"],
+            iterations=case["iterations"],
+        )
+        timing_rows.append(
+            {
+                "phase": phase_name,
+                "query_id": case["query_id"],
+                "description": case["description"],
+                "iterations": case["iterations"],
+                "avg_ms": round(statistics.mean(durations), 6),
+                "min_ms": round(min(durations), 6),
+                "max_ms": round(max(durations), 6),
+                "p95_ms": round(p95(durations), 6),
+                "captured_at_utc": utc_now_iso(),
+            }
+        )
+
+        explain_rows.append(
+            {
+                "phase": phase_name,
+                "query_id": case["query_id"],
+                "description": case["description"],
+                "query": " ".join(case["query"].split()),
+                "params": list(case["params"]),
+                "captured_at_utc": utc_now_iso(),
+                "plan": run_explain_json(connection, case["query"], case["params"]),
+            }
+        )
+
+    return timing_rows, explain_rows
+
+
+def write_timing_csv(path, rows):
+    headers = [
+        "phase",
+        "query_id",
+        "description",
+        "iterations",
+        "avg_ms",
+        "min_ms",
+        "max_ms",
+        "p95_ms",
+        "captured_at_utc",
+    ]
+    with open(path, "w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_json(path, payload):
+    with open(path, "w", encoding="utf-8") as json_file:
+        json.dump(payload, json_file, indent=2)
+
+
+def write_summary(before_rows, after_rows, path):
+    before_map = {row["query_id"]: row for row in before_rows}
+    after_map = {row["query_id"]: row for row in after_rows}
+
+    lines = [
+        "# Module B Benchmark Summary",
+        "",
+        f"Generated at (UTC): {utc_now_iso()}",
+        "",
+        "| Query | Before Avg (ms) | After Avg (ms) | Improvement |",
+        "|---|---:|---:|---:|",
+    ]
+
+    for query_id in before_map:
+        before = before_map[query_id]["avg_ms"]
+        after = after_map[query_id]["avg_ms"]
+        improvement = ((before - after) / before * 100.0) if before else 0.0
+        lines.append(f"| {query_id} | {before:.6f} | {after:.6f} | {improvement:.2f}% |")
+
+    with open(path, "w", encoding="utf-8") as summary_file:
+        summary_file.write("\n".join(lines) + "\n")
+
+
+def main():
+    ensure_dirs()
+
+    connection = None
+    try:
+        connection = get_connection()
+
+        print("Running baseline phase (drop indexes)...")
+        execute_sql_file(connection, DROP_INDEXES_SQL)
+        before_timing, before_explain = collect_phase(connection, "before")
+
+        print("Running indexed phase (create indexes)...")
+        execute_sql_file(connection, CREATE_INDEXES_SQL)
+        after_timing, after_explain = collect_phase(connection, "after")
+
+        write_timing_csv(os.path.join(RESULTS_DIR, "timings_before.csv"), before_timing)
+        write_timing_csv(os.path.join(RESULTS_DIR, "timings_after.csv"), after_timing)
+        write_json(os.path.join(RESULTS_DIR, "explain_before.json"), before_explain)
+        write_json(os.path.join(RESULTS_DIR, "explain_after.json"), after_explain)
+        write_summary(before_timing, after_timing, os.path.join(RESULTS_DIR, "summary.md"))
+
+        print("Benchmark artifacts generated:")
+        print(f"- {os.path.join(RESULTS_DIR, 'timings_before.csv')}")
+        print(f"- {os.path.join(RESULTS_DIR, 'timings_after.csv')}")
+        print(f"- {os.path.join(RESULTS_DIR, 'explain_before.json')}")
+        print(f"- {os.path.join(RESULTS_DIR, 'explain_after.json')}")
+        print(f"- {os.path.join(RESULTS_DIR, 'summary.md')}")
+
+    except Error as exc:
+        print(f"Database error: {exc}")
+        raise
+    finally:
+        if connection is not None and connection.is_connected():
+            connection.close()
+
+
+if __name__ == "__main__":
+    main()
