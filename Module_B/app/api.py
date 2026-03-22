@@ -31,6 +31,7 @@ def login_page():
 
 
 @api.route('/dashboard', methods=['GET'])
+@login_required
 def dashboard():
     """
     Dashboard page - serves the user dashboard template.
@@ -47,6 +48,7 @@ def portfolio_page():
 
 
 @api.route('/admin', methods=['GET'])
+@admin_required
 def admin_panel():
     """
     Admin panel page - serves the admin template.
