@@ -32,6 +32,26 @@
 
         <form id="portfolioForm">
             <div class="form-group">
+                <label for="name">Full Name</label>
+                <input type="text" id="name" name="name" placeholder="Your full name">
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" placeholder="you@example.com">
+            </div>
+
+            <div class="form-group">
+                <label for="contact_number">Contact Number</label>
+                <input type="text" id="contact_number" name="contact_number" placeholder="Your phone number">
+            </div>
+
+            <div class="form-group">
+                <label for="address">Address</label>
+                <input type="text" id="address" name="address" placeholder="Your address">
+            </div>
+
+            <div class="form-group">
                 <label for="bio">Bio</label>
                 <textarea id="bio" name="bio" placeholder="Write a short bio..."></textarea>
             </div>
@@ -49,6 +69,16 @@
             <div class="form-group">
                 <label for="linkedin_url">LinkedIn URL</label>
                 <input type="text" id="linkedin_url" name="linkedin_url" placeholder="https://linkedin.com/in/your-id">
+            </div>
+
+            <div class="form-group">
+                <label for="current_password">Current Password (required only if changing password)</label>
+                <input type="password" id="current_password" name="current_password" placeholder="Enter current password">
+            </div>
+
+            <div class="form-group">
+                <label for="new_password">New Password (optional)</label>
+                <input type="password" id="new_password" name="new_password" placeholder="At least 6 characters">
             </div>
 
             <button type="submit" id="saveBtn">Save Profile</button>
@@ -159,6 +189,11 @@
             document.getElementById('updatedAt').textContent = `Last updated: ${data.updated_at || 'Never'}`;
             document.getElementById('memberInfo').style.display = 'block';
 
+            document.getElementById('name').value = data.name || '';
+            document.getElementById('email').value = data.email || '';
+            document.getElementById('contact_number').value = data.contact_number || '';
+            document.getElementById('address').value = data.address || '';
+
             document.getElementById('bio').value = data.bio || '';
             document.getElementById('skills').value = data.skills || '';
             document.getElementById('github_url').value = data.github_url || '';
@@ -185,10 +220,16 @@
             e.preventDefault();
 
             const payload = {
+                name: document.getElementById('name').value,
+                email: document.getElementById('email').value,
+                contact_number: document.getElementById('contact_number').value,
+                address: document.getElementById('address').value,
                 bio: document.getElementById('bio').value,
                 skills: document.getElementById('skills').value,
                 github_url: document.getElementById('github_url').value,
-                linkedin_url: document.getElementById('linkedin_url').value
+                linkedin_url: document.getElementById('linkedin_url').value,
+                current_password: document.getElementById('current_password').value,
+                new_password: document.getElementById('new_password').value
             };
 
             UI.setLoading(true);
@@ -201,6 +242,8 @@
             }
 
             UI.showAlert('Profile updated successfully!', 'success');
+            document.getElementById('current_password').value = '';
+            document.getElementById('new_password').value = '';
             await loadPortfolio();
         });
 

@@ -1,6 +1,7 @@
 """Application package for Module B."""
 from flask import Flask
 import os
+from app.database import initialize_module_b_tables, DatabaseError
 
 
 def create_app():
@@ -18,6 +19,13 @@ def create_app():
         static_folder=os.path.join(base_dir, 'static'),
         static_url_path='/static'
     )
+
+    # Ensure Module B tables exist for local/dev usage.
+    try:
+        initialize_module_b_tables()
+    except DatabaseError as exc:
+        # Do not crash app startup; endpoints will still show explicit DB errors.
+        print(f"[WARN] Module B table initialization failed: {exc}")
     
     # Import and register API blueprint
     from app.api import api

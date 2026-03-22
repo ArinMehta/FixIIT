@@ -158,3 +158,53 @@ def create_credentials(member_id, username, password_hash):
         VALUES (%s, %s, %s)
     """
     return execute_write(query, (member_id, username, password_hash))
+
+
+def initialize_module_b_tables():
+    """Create Module B tables if they do not exist.
+
+    This makes local development resilient when setup SQL scripts have not
+    been run manually yet.
+    """
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS member_portfolio (
+                  member_id INT NOT NULL,
+                  bio TEXT NULL,
+                  skills VARCHAR(500) NULL,
+                  github_url VARCHAR(255) NULL,
+                  linkedin_url VARCHAR(255) NULL,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  PRIMARY KEY (member_id),
+                  CONSTRAINT fk_member_portfolio_member
+                    FOREIGN KEY (member_id) REFERENCES members(member_id)
+                    ON DELETE CASCADE ON UPDATE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS Credentials (
+                  member_id INT NOT NULL,
+                  username VARCHAR(80) NOT NULL,
+                  password_hash VARCHAR(255) NOT NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  PRIMARY KEY (member_id),
+                  UNIQUE KEY uk_credentials_username (username),
+                  CONSTRAINT fk_credentials_member
+                    FOREIGN KEY (member_id) REFERENCES members(member_id)
+                    ON DELETE CASCADE ON UPDATE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
+
+        connection.commit()
+    except Error as exc:
+        connection.rollback()
+        raise DatabaseError(f"Initialization failed: {exc}") from exc
+    finally:
+        connection.close()

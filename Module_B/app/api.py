@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify, g, render_template, redirect, url
 from app.auth import login_and_issue_token
 from app.rbac import login_required, admin_required
 from app.audit_logger import log_api_event, log_security_event
+from app import models
 from app.database import (
     fetch_all, fetch_one, execute_write,
     is_member_admin
@@ -31,10 +32,12 @@ def login_page():
 
 
 @api.route('/dashboard', methods=['GET'])
-@login_required
 def dashboard():
     """
-    Dashboard page - serves the user dashboard template.
+    Dashboard page shell.
+
+    Note: Browser navigation requests cannot include custom Authorization
+    headers. The template's JS performs token validation using /isAuth.
     """
     return render_template('dashboard.html')
 
@@ -48,10 +51,13 @@ def portfolio_page():
 
 
 @api.route('/admin', methods=['GET'])
-@admin_required
 def admin_panel():
     """
-    Admin panel page - serves the admin template.
+    Admin page shell.
+
+    Note: Browser navigation requests cannot include custom Authorization
+    headers. The template's JS performs admin validation using /isAuth and
+    protected admin APIs.
     """
     return render_template('admin.html')
 
@@ -223,13 +229,80 @@ def update_my_portfolio():
             return text
 
         try:
+            name = clean_optional(data.get('name'), 80)
+            email = clean_optional(data.get('email'), 120)
+            contact_number = clean_optional(data.get('contact_number'), 20)
+            address = clean_optional(data.get('address'), 200)
             bio = clean_optional(data.get('bio'), 2000)
             skills = clean_optional(data.get('skills'), 500)
             github_url = clean_optional(data.get('github_url'), 255)
             linkedin_url = clean_optional(data.get('linkedin_url'), 255)
+            current_password = data.get('current_password')
+            new_password = data.get('new_password')
+
+            if new_password:
+                if not current_password:
+                    raise ValueError('Current password is required to change password')
+                if len(str(new_password)) < 6:
+                    raise ValueError('New password must be at least 6 characters')
         except ValueError as exc:
             log_api_event('/portfolio/me (PUT)', 'FAILED', str(exc), member_id)
             return jsonify({'error': str(exc)}), 400
+
+        # Update member profile fields if provided.
+        if any(value is not None for value in [name, email, contact_number, address]):
+            member_record = fetch_one(
+                "SELECT name, email, contact_number, address FROM members WHERE member_id = %s",
+                (member_id,),
+            )
+            if not member_record:
+                log_api_event('/portfolio/me (PUT)', 'FAILED', 'Member not found', member_id)
+                return jsonify({'error': 'Member not found'}), 404
+
+            resolved_name = name if name is not None else member_record.get('name')
+            resolved_email = email if email is not None else member_record.get('email')
+            resolved_contact = contact_number if contact_number is not None else member_record.get('contact_number')
+            resolved_address = address if address is not None else member_record.get('address')
+
+            if not resolved_name or not resolved_email or not resolved_contact or not resolved_address:
+                log_api_event('/portfolio/me (PUT)', 'FAILED', 'Name/email/contact/address cannot be empty', member_id)
+                return jsonify({'error': 'Name, email, contact number, and address cannot be empty'}), 400
+
+            execute_write(
+                """
+                UPDATE members
+                SET name = %s, email = %s, contact_number = %s, address = %s
+                WHERE member_id = %s
+                """,
+                (resolved_name, resolved_email, resolved_contact, resolved_address, member_id),
+                audit_context={
+                    'actor_member_id': member_id,
+                    'endpoint': '/portfolio/me (PUT) - members'
+                }
+            )
+
+        # Change password only when explicitly requested.
+        if new_password:
+            credential_record = fetch_one(
+                "SELECT password_hash FROM Credentials WHERE member_id = %s",
+                (member_id,),
+            )
+            if not credential_record:
+                log_api_event('/portfolio/me (PUT)', 'FAILED', 'Credentials not found', member_id)
+                return jsonify({'error': 'Credentials not found'}), 404
+
+            if not models.verify_password(str(current_password), credential_record.get('password_hash', '')):
+                log_api_event('/portfolio/me (PUT)', 'FAILED', 'Current password is incorrect', member_id)
+                return jsonify({'error': 'Current password is incorrect'}), 400
+
+            execute_write(
+                "UPDATE Credentials SET password_hash = %s WHERE member_id = %s",
+                (models.hash_password(str(new_password)), member_id),
+                audit_context={
+                    'actor_member_id': member_id,
+                    'endpoint': '/portfolio/me (PUT) - password'
+                }
+            )
 
         query = """
             INSERT INTO member_portfolio (
