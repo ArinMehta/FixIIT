@@ -4,3 +4,11 @@ __pycache__
 .DS_Store
 .venv
 
+*.aux
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc
+*.tex
+*.out
+iitgn_logo.png
