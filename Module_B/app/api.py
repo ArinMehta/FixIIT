@@ -241,7 +241,14 @@ def update_my_portfolio():
                 linkedin_url = VALUES(linkedin_url),
                 updated_at = NOW()
         """
-        execute_write(query, (member_id, bio, skills, github_url, linkedin_url))
+        execute_write(
+            query,
+            (member_id, bio, skills, github_url, linkedin_url),
+            audit_context={
+                'actor_member_id': member_id,
+                'endpoint': '/portfolio/me (PUT)'
+            }
+        )
 
         log_api_event('/portfolio/me (PUT)', 'SUCCESS', 'Updated member portfolio', member_id)
         return jsonify({'message': 'Portfolio updated successfully'}), 200
@@ -336,6 +343,48 @@ def get_all_tickets_admin():
         return jsonify({'error': 'Failed to retrieve admin tickets'}), 500
 
 
+@api.route('/admin/tamper-events', methods=['GET'])
+@admin_required
+def get_tamper_events():
+    """Get suspicious direct database writes that bypassed app/API context."""
+    try:
+        member_id = g.member_id
+
+        query = """
+            SELECT
+                id, table_name, operation, pk_value, actor_member_id,
+                endpoint, source, before_json, after_json, changed_at
+            FROM db_change_audit
+            WHERE source = 'DIRECT_DB'
+            ORDER BY changed_at DESC
+            LIMIT 200
+        """
+        rows = fetch_all(query)
+
+        events = []
+        for row in rows:
+            events.append({
+                'id': row.get('id'),
+                'table_name': row.get('table_name'),
+                'operation': row.get('operation'),
+                'pk_value': row.get('pk_value'),
+                'actor_member_id': row.get('actor_member_id'),
+                'endpoint': row.get('endpoint'),
+                'source': row.get('source'),
+                'before_json': row.get('before_json'),
+                'after_json': row.get('after_json'),
+                'changed_at': str(row.get('changed_at')) if row.get('changed_at') else None
+            })
+
+        log_api_event('/admin/tamper-events', 'SUCCESS', f'Retrieved {len(events)} events', member_id)
+        return jsonify({'events': events, 'count': len(events)}), 200
+
+    except Exception as e:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event('/admin/tamper-events', 'ERROR', str(e), member_id)
+        return jsonify({'error': 'Failed to retrieve tamper events'}), 500
+
+
 @api.route('/tickets', methods=['POST'])
 @login_required
 def create_ticket():
@@ -369,7 +418,11 @@ def create_ticket():
         """
         result = execute_write(
             query,
-            (title, description, member_id, location_id, category_id, priority)
+            (title, description, member_id, location_id, category_id, priority),
+            audit_context={
+                'actor_member_id': member_id,
+                'endpoint': '/tickets (POST)'
+            }
         )
         
         if result:
@@ -419,7 +472,14 @@ def update_ticket(ticket_id):
         values.append(ticket_id)
         query = f"UPDATE tickets SET {', '.join(updates)}, updated_at = NOW() WHERE ticket_id = %s"
         
-        execute_write(query, tuple(values))
+        execute_write(
+            query,
+            tuple(values),
+            audit_context={
+                'actor_member_id': member_id,
+                'endpoint': f'/tickets/{ticket_id} (PUT)'
+            }
+        )
         log_api_event(f'/tickets/{ticket_id} (PUT)', 'SUCCESS', 'Ticket updated', member_id)
         return jsonify({'message': 'Ticket updated successfully'}), 200
     
@@ -441,7 +501,14 @@ def delete_ticket(ticket_id):
         username = g.username
         
         query = "DELETE FROM tickets WHERE ticket_id = %s"
-        execute_write(query, (ticket_id,))
+        execute_write(
+            query,
+            (ticket_id,),
+            audit_context={
+                'actor_member_id': member_id,
+                'endpoint': f'/tickets/{ticket_id} (DELETE)'
+            }
+        )
         
         log_api_event(f'/tickets/{ticket_id} (DELETE)', 'SUCCESS', 'Ticket deleted', member_id)
         return jsonify({'message': 'Ticket deleted successfully'}), 200

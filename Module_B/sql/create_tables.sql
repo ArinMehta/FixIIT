@@ -31,3 +31,18 @@ CREATE TABLE IF NOT EXISTS member_portfolio (
     FOREIGN KEY (member_id) REFERENCES members(member_id)
     ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS db_change_audit (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  table_name VARCHAR(100) NOT NULL,
+  operation VARCHAR(10) NOT NULL,
+  pk_value VARCHAR(100) NOT NULL,
+  actor_member_id INT NULL,
+  endpoint VARCHAR(255) NULL,
+  source VARCHAR(20) NOT NULL,
+  before_json JSON NULL,
+  after_json JSON NULL,
+  changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_db_change_audit_source_changed_at (source, changed_at),
+  INDEX idx_db_change_audit_table_pk (table_name, pk_value)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

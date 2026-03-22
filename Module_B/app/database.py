@@ -52,11 +52,29 @@ def fetch_all(query, params=None):
         connection.close()
 
 
-def execute_write(query, params=None):
-    """Run INSERT/UPDATE/DELETE and return affected row count."""
+def execute_write(query, params=None, audit_context=None):
+    """Run INSERT/UPDATE/DELETE and return affected row count.
+
+    Optional audit_context shape:
+        {
+            "actor_member_id": <int_or_none>,
+            "endpoint": "<route_or_action_name>"
+        }
+    """
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
+            if audit_context:
+                cursor.execute(
+                    "SET @app_actor_member_id = %s, @app_endpoint = %s",
+                    (
+                        audit_context.get("actor_member_id"),
+                        audit_context.get("endpoint"),
+                    ),
+                )
+            else:
+                cursor.execute("SET @app_actor_member_id = NULL, @app_endpoint = NULL")
+
             cursor.execute(query, params or ())
             connection.commit()
             return cursor.rowcount
