@@ -1,0 +1,38 @@
+{
+  "schema": {
+    "ticket_id": "int",
+    "title": "str",
+    "member_id": "int",
+    "category_id": "int",
+    "priority": "str",
+    "status_id": "int"
+  },
+  "search_key": "ticket_id",
+  "order": 8,
+  "records": [
+    {
+      "ticket_id": 1,
+      "title": "Projector not working",
+      "member_id": 1,
+      "category_id": 1,
+      "priority": "Medium",
+      "status_id": 2
+    },
+    {
+      "ticket_id": 2,
+      "title": "Power outlet sparks",
+      "member_id": 2,
+      "category_id": 1,
+      "priority": "Emergency",
+      "status_id": 2
+    },
+    {
+      "ticket_id": 3,
+      "title": "AC not working in Lab",
+      "member_id": 3,
+      "category_id": 3,
+      "priority": "High",
+      "status_id": 2
+    }
+  ]
+}
