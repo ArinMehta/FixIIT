@@ -1,3 +1,0 @@
-avg_ms,backend,commits,errors,p95_ms,reason,requests,rollbacks,status,throughput_rps,total_time_s,workers
-997.071,custom_bplustree,185,,1463.964,,200,15,ok,15.448,12.946965,16
-1608.002,mysql_sql,,200,2385.093,1045 (28000): Access denied for user 'root'@'localhost' (using password: NO),200,,failed,9.839,20.328034,16

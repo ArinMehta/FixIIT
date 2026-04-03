@@ -1,0 +1,308 @@
+[
+  {
+    "phase": "before",
+    "query_id": "LOGIN_QUERY",
+    "description": "Auth lookup join by username",
+    "query": "SELECT m.member_id, m.name, m.email, m.contact_number, m.address, c.username, c.password_hash, GROUP_CONCAT(DISTINCT r.role_code ORDER BY r.role_code) AS role_codes FROM Credentials c JOIN members m ON m.member_id = c.member_id LEFT JOIN member_roles mr ON mr.member_id = m.member_id LEFT JOIN roles r ON r.role_id = mr.role_id WHERE c.username = %s GROUP BY m.member_id, m.name, m.email, m.contact_number, m.address, c.username, c.password_hash",
+    "params": [
+      "admin"
+    ],
+    "captured_at_utc": "2026-03-22T00:36:54Z",
+    "plan": {
+      "query": "/* select#1 */ select '28' AS `member_id`,'Hostel Office' AS `name`,'hostel.office@fixiit.iitgn.ac.in' AS `email`,'+91 9000000012' AS `contact_number`,'Hostel Administration Office' AS `address`,'admin' AS `username`,'240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9' AS `password_hash`,group_concat(distinct `r`.`role_code` order by `r`.`role_code` ASC separator ',') AS `role_codes` from `fixiit_db`.`credentials` `c` join `fixiit_db`.`members` `m` left join `fixiit_db`.`member_roles` `mr` on((`mr`.`member_id` = '28')) left join `fixiit_db`.`roles` `r` on((`r`.`role_id` = `mr`.`role_id`)) where (('admin' = 'admin')) group by '28','Hostel Office','hostel.office@fixiit.iitgn.ac.in','+91 9000000012','Hostel Administration Office','admin','240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'",
+      "query_plan": {
+        "inputs": [
+          {
+            "inputs": [
+              {
+                "inputs": [
+                  {
+                    "operation": "Rows fetched before execution",
+                    "access_type": "rows_fetched_before_execution",
+                    "estimated_rows": 1.0,
+                    "estimated_total_cost": 0.0,
+                    "estimated_first_row_cost": 0.0
+                  },
+                  {
+                    "inputs": [
+                      {
+                        "alias": "mr",
+                        "covering": true,
+                        "operation": "Covering index lookup on mr using member_id (member_id = '28')",
+                        "index_name": "member_id",
+                        "table_name": "member_roles",
+                        "access_type": "index",
+                        "key_columns": [
+                          "member_id"
+                        ],
+                        "schema_name": "fixiit_db",
+                        "used_columns": [
+                          "member_id",
+                          "role_id"
+                        ],
+                        "estimated_rows": 1.0,
+                        "lookup_condition": "member_id = '28'",
+                        "index_access_type": "index_lookup",
+                        "lookup_references": [
+                          "const"
+                        ],
+                        "estimated_total_cost": 0.35
+                      }
+                    ],
+                    "condition": "(mr.member_id = '28')",
+                    "operation": "Filter: (mr.member_id = '28')",
+                    "access_type": "filter",
+                    "estimated_rows": 1.0,
+                    "filter_columns": [
+                      "'28'",
+                      "mr.member_id"
+                    ],
+                    "estimated_total_cost": 0.35
+                  }
+                ],
+                "join_type": "left join",
+                "operation": "Nested loop left join",
+                "access_type": "join",
+                "estimated_rows": 1.0,
+                "join_algorithm": "nested_loop",
+                "estimated_total_cost": 0.35
+              },
+              {
+                "alias": "r",
+                "covering": false,
+                "operation": "Single-row index lookup on r using PRIMARY (role_id = mr.role_id)",
+                "index_name": "PRIMARY",
+                "table_name": "roles",
+                "access_type": "index",
+                "key_columns": [
+                  "role_id"
+                ],
+                "schema_name": "fixiit_db",
+                "used_columns": [
+                  "role_id",
+                  "role_code"
+                ],
+                "estimated_rows": 1.0,
+                "lookup_condition": "role_id = mr.role_id",
+                "index_access_type": "index_lookup",
+                "lookup_references": [
+                  "fixiit_db.mr.role_id"
+                ],
+                "estimated_total_cost": 0.35
+              }
+            ],
+            "join_type": "left join",
+            "operation": "Nested loop left join",
+            "access_type": "join",
+            "estimated_rows": 1.0,
+            "join_algorithm": "nested_loop",
+            "estimated_total_cost": 0.7
+          }
+        ],
+        "group_by": true,
+        "functions": [
+          "group_concat(distinct r.role_code order by r.role_code ASC separator ',')"
+        ],
+        "operation": "Group aggregate: group_concat(distinct r.role_code order by r.role_code ASC separator ',')",
+        "access_type": "aggregate",
+        "estimated_rows": 1.0,
+        "estimated_total_cost": 0.9304147465437788
+      },
+      "query_type": "select",
+      "json_schema_version": "2.0"
+    }
+  },
+  {
+    "phase": "before",
+    "query_id": "ADMIN_CHECK_QUERY",
+    "description": "RBAC admin membership check",
+    "query": "SELECT 1 AS is_admin FROM member_roles mr JOIN roles r ON r.role_id = mr.role_id WHERE mr.member_id = %s AND UPPER(r.role_code) = 'ADMIN' LIMIT 1",
+    "params": [
+      28
+    ],
+    "captured_at_utc": "2026-03-22T00:36:54Z",
+    "plan": {
+      "query": "/* select#1 */ select 1 AS `is_admin` from `fixiit_db`.`member_roles` `mr` join `fixiit_db`.`roles` `r` where ((`r`.`role_id` = `mr`.`role_id`) and (`mr`.`member_id` = 28) and (upper(`r`.`role_code`) = 'ADMIN')) limit 1",
+      "query_plan": {
+        "limit": 1,
+        "inputs": [
+          {
+            "inputs": [
+              {
+                "alias": "mr",
+                "covering": true,
+                "operation": "Covering index lookup on mr using member_id (member_id = 28)",
+                "index_name": "member_id",
+                "table_name": "member_roles",
+                "access_type": "index",
+                "key_columns": [
+                  "member_id"
+                ],
+                "schema_name": "fixiit_db",
+                "used_columns": [
+                  "member_id",
+                  "role_id"
+                ],
+                "estimated_rows": 1.0,
+                "lookup_condition": "member_id = 28",
+                "index_access_type": "index_lookup",
+                "lookup_references": [
+                  "const"
+                ],
+                "estimated_total_cost": 0.35
+              },
+              {
+                "inputs": [
+                  {
+                    "alias": "r",
+                    "covering": false,
+                    "operation": "Single-row index lookup on r using PRIMARY (role_id = mr.role_id)",
+                    "index_name": "PRIMARY",
+                    "table_name": "roles",
+                    "access_type": "index",
+                    "key_columns": [
+                      "role_id"
+                    ],
+                    "schema_name": "fixiit_db",
+                    "used_columns": [
+                      "role_id",
+                      "role_code"
+                    ],
+                    "estimated_rows": 1.0,
+                    "lookup_condition": "role_id = mr.role_id",
+                    "index_access_type": "index_lookup",
+                    "lookup_references": [
+                      "fixiit_db.mr.role_id"
+                    ],
+                    "estimated_total_cost": 0.35
+                  }
+                ],
+                "condition": "(upper(r.role_code) = 'ADMIN')",
+                "operation": "Filter: (upper(r.role_code) = 'ADMIN')",
+                "access_type": "filter",
+                "estimated_rows": 1.0,
+                "filter_columns": [
+                  "r.role_code"
+                ],
+                "estimated_total_cost": 0.35
+              }
+            ],
+            "join_type": "inner join",
+            "operation": "Nested loop inner join",
+            "access_type": "join",
+            "estimated_rows": 1.0,
+            "join_algorithm": "nested_loop",
+            "estimated_total_cost": 0.7
+          }
+        ],
+        "operation": "Limit: 1 row(s)",
+        "access_type": "limit",
+        "limit_offset": 0,
+        "estimated_rows": 1.0,
+        "estimated_total_cost": 0.7
+      },
+      "query_type": "select",
+      "json_schema_version": "2.0"
+    }
+  },
+  {
+    "phase": "before",
+    "query_id": "USER_TICKETS_QUERY",
+    "description": "User ticket listing with filter + order",
+    "query": "SELECT ticket_id, title, description, member_id, location_id, category_id, priority, status_id, created_at, updated_at FROM tickets WHERE member_id = %s ORDER BY created_at DESC",
+    "params": [
+      2
+    ],
+    "captured_at_utc": "2026-03-22T00:36:54Z",
+    "plan": {
+      "query": "/* select#1 */ select `fixiit_db`.`tickets`.`ticket_id` AS `ticket_id`,`fixiit_db`.`tickets`.`title` AS `title`,`fixiit_db`.`tickets`.`description` AS `description`,`fixiit_db`.`tickets`.`member_id` AS `member_id`,`fixiit_db`.`tickets`.`location_id` AS `location_id`,`fixiit_db`.`tickets`.`category_id` AS `category_id`,`fixiit_db`.`tickets`.`priority` AS `priority`,`fixiit_db`.`tickets`.`status_id` AS `status_id`,`fixiit_db`.`tickets`.`created_at` AS `created_at`,`fixiit_db`.`tickets`.`updated_at` AS `updated_at` from `fixiit_db`.`tickets` where (`fixiit_db`.`tickets`.`member_id` = 2) order by `fixiit_db`.`tickets`.`created_at` desc",
+      "query_plan": {
+        "inputs": [
+          {
+            "covering": false,
+            "operation": "Index lookup on tickets using fk_tickets_member (member_id = 2)",
+            "index_name": "fk_tickets_member",
+            "table_name": "tickets",
+            "access_type": "index",
+            "key_columns": [
+              "member_id"
+            ],
+            "schema_name": "fixiit_db",
+            "used_columns": [
+              "ticket_id",
+              "title",
+              "description",
+              "member_id",
+              "location_id",
+              "category_id",
+              "priority",
+              "status_id",
+              "created_at",
+              "updated_at"
+            ],
+            "estimated_rows": 1.0,
+            "lookup_condition": "member_id = 2",
+            "index_access_type": "index_lookup",
+            "lookup_references": [
+              "const"
+            ],
+            "estimated_total_cost": 0.35
+          }
+        ],
+        "operation": "Sort: tickets.created_at DESC",
+        "access_type": "sort",
+        "sort_fields": [
+          "tickets.created_at DESC"
+        ],
+        "estimated_rows": 1.0,
+        "estimated_total_cost": 0.35
+      },
+      "query_type": "select",
+      "json_schema_version": "2.0"
+    }
+  },
+  {
+    "phase": "before",
+    "query_id": "ADMIN_TICKETS_QUERY",
+    "description": "Admin ticket listing ordered by created_at",
+    "query": "SELECT ticket_id, title, description, member_id, location_id, category_id, priority, status_id, created_at, updated_at FROM tickets ORDER BY created_at DESC",
+    "params": [],
+    "captured_at_utc": "2026-03-22T00:36:54Z",
+    "plan": {
+      "query": "/* select#1 */ select `fixiit_db`.`tickets`.`ticket_id` AS `ticket_id`,`fixiit_db`.`tickets`.`title` AS `title`,`fixiit_db`.`tickets`.`description` AS `description`,`fixiit_db`.`tickets`.`member_id` AS `member_id`,`fixiit_db`.`tickets`.`location_id` AS `location_id`,`fixiit_db`.`tickets`.`category_id` AS `category_id`,`fixiit_db`.`tickets`.`priority` AS `priority`,`fixiit_db`.`tickets`.`status_id` AS `status_id`,`fixiit_db`.`tickets`.`created_at` AS `created_at`,`fixiit_db`.`tickets`.`updated_at` AS `updated_at` from `fixiit_db`.`tickets` order by `fixiit_db`.`tickets`.`created_at` desc",
+      "query_plan": {
+        "inputs": [
+          {
+            "operation": "Table scan on tickets",
+            "table_name": "tickets",
+            "access_type": "table",
+            "schema_name": "fixiit_db",
+            "used_columns": [
+              "ticket_id",
+              "title",
+              "description",
+              "member_id",
+              "location_id",
+              "category_id",
+              "priority",
+              "status_id",
+              "created_at",
+              "updated_at"
+            ],
+            "estimated_rows": 20.0,
+            "estimated_total_cost": 2.25
+          }
+        ],
+        "operation": "Sort: tickets.created_at DESC",
+        "access_type": "sort",
+        "sort_fields": [
+          "tickets.created_at DESC"
+        ],
+        "estimated_rows": 20.0,
+        "estimated_total_cost": 2.25
+      },
+      "query_type": "select",
+      "json_schema_version": "2.0"
+    }
+  }
+]

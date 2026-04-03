@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FixIIT - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>FixIIT</h1>
+            <p>Campus Maintenance System - Module B</p>
+        </div>
+
+        <div id="alert-container"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input 
+                    type="text" 
+                    id="username" 
+                    name="username" 
+                    placeholder="Enter your username"
+                    required
+                    autocomplete="username"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input 
+                    type="password" 
+                    id="password" 
+                    name="password" 
+                    placeholder="Enter your password"
+                    required
+                    autocomplete="current-password"
+                >
+            </div>
+
+            <button type="submit" id="loginBtn">Login</button>
+        </form>
+
+        <div style="margin-top: 20px; text-align: center; font-size: 12px; color: #666;">
+            <p><strong>Demo Credentials:</strong></p>
+            <p>Admin: admin / admin123</p>
+            <p>User: user / user123</p>
+        </div>
+    </div>
+
+    <script>
+        // Token management
+        const TokenManager = {
+            set: function(token) {
+                localStorage.setItem('auth_token', token);
+            },
+            get: function() {
+                return localStorage.getItem('auth_token');
+            },
+            clear: function() {
+                localStorage.removeItem('auth_token');
+            },
+            exists: function() {
+                return !!this.get();
+            }
+        };
+
+        // API communication
+        const API = {
+            baseURL: window.location.origin,
+            
+            request: async function(endpoint, options = {}) {
+                const url = this.baseURL + endpoint;
+                const headers = {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                };
+
+                // Add auth token if exists
+                const token = TokenManager.get();
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                try {
+                    const response = await fetch(url, {
+                        ...options,
+                        headers
+                    });
+                    
+                    const data = await response.json();
+                    return {
+                        success: response.ok,
+                        status: response.status,
+                        data: data
+                    };
+                } catch (error) {
+                    return {
+                        success: false,
+                        status: 0,
+                        data: { error: error.message }
+                    };
+                }
+            },
+
+            login: async function(username, password) {
+                return this.request('/login', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, password })
+                });
+            }
+        };
+
+        // UI utilities
+        const UI = {
+            showAlert: function(message, type = 'info') {
+                const container = document.getElementById('alert-container');
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `alert ${type}`;
+                alertDiv.textContent = message;
+                container.innerHTML = '';
+                container.appendChild(alertDiv);
+                
+                // Auto-clear success alerts after 3 seconds
+                if (type === 'success') {
+                    setTimeout(() => {
+                        alertDiv.remove();
+                    }, 3000);
+                }
+            },
+
+            setLoading: function(isLoading) {
+                const btn = document.getElementById('loginBtn');
+                btn.disabled = isLoading;
+                btn.textContent = isLoading ? 'Logging in...' : 'Login';
+            }
+        };
+
+        // Form handler
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) {
+                UI.showAlert('Please enter both username and password', 'error');
+                return;
+            }
+
+            UI.setLoading(true);
+
+            const result = await API.login(username, password);
+
+            if (result.success && result.data.session_token) {
+                TokenManager.set(result.data.session_token);
+                UI.showAlert('Login successful! Redirecting...', 'success');
+                
+                setTimeout(() => {
+                    window.location.href = '/dashboard';
+                }, 1000);
+            } else {
+                const errorMsg = result.data.error || 'Login failed. Please try again.';
+                UI.showAlert(errorMsg, 'error');
+                UI.setLoading(false);
+            }
+        });
+
+        // Check if already logged in
+        if (TokenManager.exists()) {
+            window.location.href = '/dashboard';
+        }
+    </script>
+</body>
+</html>
