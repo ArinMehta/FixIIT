@@ -1,0 +1,7 @@
+atomicity_verified,avg_ms,errors,failures_simulated,invalid_data_created,isolation_verified,p95_ms,partial_data_found,read_successes,requests,status,successes,target_ticket_id,test,tests_run,throughput_rps,ticket_valid,total_time_s,violations_attempted,violations_caught,workers,write_successes
+,851.48,0,,,,1190.43,,,100,ok,100,,concurrent_read,,17.9,,5.5855,,,16,
+,65.77,0,,,,138.06,,,50,ok,50,,concurrent_write,,114.49,,0.4367,,,8,
+,0.0,0,,,,0.0,,,50,ok,50,1312,race_condition,,,ok,0.2774,,,16,
+,614.22,0,,,,984.42,,69,100,ok,,,mixed_workload,,24.22,,4.1282,,,16,31
+YES,,,,0,,,,,,ok,,,constraint_violation,,,,,3,3,,
+YES,,,10,,YES,,0,,,ok,,,failure_during_execution,3,,,,,,,

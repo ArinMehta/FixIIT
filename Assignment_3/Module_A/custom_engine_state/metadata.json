@@ -1,0 +1,38 @@
+{
+  "tables": {
+    "members": {
+      "schema": {
+        "member_id": "int",
+        "name": "str",
+        "email": "str",
+        "contact_number": "str",
+        "age": "int"
+      },
+      "search_key": "member_id",
+      "order": 8
+    },
+    "tickets": {
+      "schema": {
+        "ticket_id": "int",
+        "title": "str",
+        "member_id": "int",
+        "category_id": "int",
+        "priority": "str",
+        "status_id": "int"
+      },
+      "search_key": "ticket_id",
+      "order": 8
+    },
+    "assignments": {
+      "schema": {
+        "assignment_id": "int",
+        "ticket_id": "int",
+        "technician_member_id": "int",
+        "assigned_by": "int",
+        "instructions": "str"
+      },
+      "search_key": "assignment_id",
+      "order": 8
+    }
+  }
+}

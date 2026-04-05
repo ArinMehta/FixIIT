@@ -1,0 +1,39 @@
+{"type":"BEGIN","tx_id":"tx-049bd8fdc383","ts":1775384644.1183877}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.1230574,"table":"members","key":1,"before":null,"after":{"member_id":1,"name":"Prof. XYZ","email":"prof.xyz@iitgn.ac.in","contact_number":"+91 9123456789","age":37}}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.1273081,"table":"members","key":2,"before":null,"after":{"member_id":2,"name":"Shiv Patel","email":"shiv.patel@iitgn.ac.in","contact_number":"+91 8123406789","age":20}}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.1319413,"table":"members","key":3,"before":null,"after":{"member_id":3,"name":"Prof. ABC","email":"prof.abc@iitgn.ac.in","contact_number":"+91 7123456190","age":42}}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.1355793,"table":"members","key":17,"before":null,"after":{"member_id":17,"name":"Electrician A","email":"electrician.a@fixiit.iitgn.ac.in","contact_number":"+91 9000000001","age":32}}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.1390827,"table":"members","key":28,"before":null,"after":{"member_id":28,"name":"Admin","email":"admin@fixiit.iitgn.ac.in","contact_number":"+91 9999999999","age":50}}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.14355,"table":"tickets","key":1,"before":null,"after":{"ticket_id":1,"title":"Projector not working","member_id":1,"category_id":1,"priority":"Medium","status_id":5}}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.1464384,"table":"tickets","key":2,"before":null,"after":{"ticket_id":2,"title":"Power outlet sparks","member_id":2,"category_id":1,"priority":"Emergency","status_id":2}}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.1494591,"table":"tickets","key":3,"before":null,"after":{"ticket_id":3,"title":"AC not working in Lab","member_id":3,"category_id":3,"priority":"High","status_id":2}}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.1525617,"table":"assignments","key":1,"before":null,"after":{"assignment_id":1,"ticket_id":2,"technician_member_id":17,"assigned_by":28,"instructions":"Inspect wiring and replace damaged outlet."}}
+{"type":"APPLY","tx_id":"tx-049bd8fdc383","ts":1775384644.155274,"table":"assignments","key":2,"before":null,"after":{"assignment_id":2,"ticket_id":3,"technician_member_id":17,"assigned_by":28,"instructions":"Check AC unit cooling system."}}
+{"type":"COMMIT","tx_id":"tx-049bd8fdc383","ts":1775384644.1578698,"op_count":10}
+{"type":"BEGIN","tx_id":"tx-bbf537a0e134","ts":1775384644.2161305}
+{"type":"APPLY","tx_id":"tx-bbf537a0e134","ts":1775384644.2191722,"table":"tickets","key":2,"before":{"ticket_id":2,"title":"Power outlet sparks","member_id":2,"category_id":1,"priority":"Emergency","status_id":2},"after":{"ticket_id":2,"title":"Power outlet sparks","member_id":2,"category_id":1,"priority":"Emergency","status_id":2}}
+{"type":"APPLY","tx_id":"tx-bbf537a0e134","ts":1775384644.2219253,"table":"assignments","key":100,"before":null,"after":{"assignment_id":100,"ticket_id":2,"technician_member_id":17,"assigned_by":28,"instructions":"Inspect and repair as per priority"}}
+{"type":"ABORT","tx_id":"tx-bbf537a0e134","ts":1775384644.2469308,"reason":"Injected failure after 2 operation(s)","applied_count":2}
+{"type":"BEGIN","tx_id":"tx-585d47819e39","ts":1775384644.2523963}
+{"type":"APPLY","tx_id":"tx-585d47819e39","ts":1775384644.2558026,"table":"tickets","key":3,"before":{"ticket_id":3,"title":"AC not working in Lab","member_id":3,"category_id":3,"priority":"High","status_id":2},"after":{"ticket_id":3,"title":"AC not working in Lab","member_id":3,"category_id":3,"priority":"High","status_id":2}}
+{"type":"APPLY","tx_id":"tx-585d47819e39","ts":1775384644.258961,"table":"assignments","key":101,"before":null,"after":{"assignment_id":101,"ticket_id":3,"technician_member_id":17,"assigned_by":28,"instructions":"Inspect and repair as per priority"}}
+{"type":"COMMIT","tx_id":"tx-585d47819e39","ts":1775384644.2617288,"op_count":2}
+{"type":"BEGIN","tx_id":"tx-e903e438b74f","ts":1775384644.3325827}
+{"type":"BEGIN","tx_id":"tx-97e13059b081","ts":1775384644.3354845}
+{"type":"APPLY","tx_id":"tx-e903e438b74f","ts":1775384644.33923,"table":"tickets","key":1,"before":{"ticket_id":1,"title":"Projector not working","member_id":1,"category_id":1,"priority":"Medium","status_id":5},"after":{"ticket_id":1,"title":"Projector not working","member_id":1,"category_id":1,"priority":"Isolation-T1","status_id":5}}
+{"type":"COMMIT","tx_id":"tx-e903e438b74f","ts":1775384644.3419945,"op_count":1}
+{"type":"ABORT","tx_id":"tx-97e13059b081","ts":1775384644.3677368,"reason":"manual_rollback"}
+{"type":"BEGIN","tx_id":"tx-dc5e99b9d246","ts":1775384644.3704202}
+{"type":"ABORT","tx_id":"tx-dc5e99b9d246","ts":1775384644.37345,"reason":"manual_rollback"}
+{"type":"BEGIN","tx_id":"tx-65d9ba1815ad","ts":1775389407.4201832}
+{"type":"ABORT","tx_id":"tx-65d9ba1815ad","ts":1775389407.4273045,"reason":"manual_rollback"}
+{"type":"BEGIN","tx_id":"tx-263f485aa7e7","ts":1775389407.4352348}
+{"type":"ABORT","tx_id":"tx-263f485aa7e7","ts":1775389407.4414785,"reason":"manual_rollback"}
+{"type":"BEGIN","tx_id":"tx-58cccfd194df","ts":1775389407.4531133}
+{"type":"ABORT","tx_id":"tx-58cccfd194df","ts":1775389407.4578235,"reason":"manual_rollback"}
+{"type":"BEGIN","tx_id":"tx-45d3000d39a5","ts":1775389407.4634116}
+{"type":"BEGIN","tx_id":"tx-b956e6c1e58a","ts":1775389407.4699998}
+{"type":"ABORT","tx_id":"tx-b956e6c1e58a","ts":1775389407.4737122,"reason":"manual_rollback"}
+{"type":"BEGIN","tx_id":"tx-95e3278ff31d","ts":1775389407.4802713}
+{"type":"APPLY","tx_id":"tx-95e3278ff31d","ts":1775389407.484117,"table":"assignments","key":300,"before":null,"after":{"assignment_id":300,"ticket_id":1,"technician_member_id":17,"assigned_by":28,"instructions":"Persistent assignment"}}
+{"type":"COMMIT","tx_id":"tx-95e3278ff31d","ts":1775389407.4873052,"op_count":1}

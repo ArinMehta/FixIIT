@@ -1,0 +1,41 @@
+{
+  "schema": {
+    "assignment_id": "int",
+    "ticket_id": "int",
+    "technician_member_id": "int",
+    "assigned_by": "int",
+    "instructions": "str"
+  },
+  "search_key": "assignment_id",
+  "order": 8,
+  "records": [
+    {
+      "assignment_id": 1,
+      "ticket_id": 2,
+      "technician_member_id": 17,
+      "assigned_by": 28,
+      "instructions": "Inspect wiring and replace damaged outlet."
+    },
+    {
+      "assignment_id": 2,
+      "ticket_id": 3,
+      "technician_member_id": 17,
+      "assigned_by": 28,
+      "instructions": "Check AC unit cooling system."
+    },
+    {
+      "assignment_id": 101,
+      "ticket_id": 3,
+      "technician_member_id": 17,
+      "assigned_by": 28,
+      "instructions": "Inspect and repair as per priority"
+    },
+    {
+      "assignment_id": 300,
+      "ticket_id": 1,
+      "technician_member_id": 17,
+      "assigned_by": 28,
+      "instructions": "Persistent assignment"
+    }
+  ]
+}
