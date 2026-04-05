@@ -1,3 +1,4 @@
-avg_ms,backend,commits,p95_ms,reason,requests,rollbacks,status,throughput_rps,total_time_s,workers
-979.97,custom_bplustree,185,1484.548,,200,15,ok,15.737,12.708992,16
-,mysql_sql,,,Module_B not found,200,,skipped,,,16
+avg_ms,backend,commits,conflicts,consistency,final_assignments,initial_assignments,no_partial_writes,p95_ms,requests,rollbacks,status,successes,test,throughput_rps,ticket_valid,total_time_s,workers
+18.769,custom_bplustree,185,,ok,,,,23.828,200,15,ok,,,809.915,,0.24694,16
+20.039,,,0,ok,,,,,100,,ok,100,race_condition,,ok,0.076065,32
+,,0,,,2,2,ok,,50,50,ok,,atomicity,,,0.039596,

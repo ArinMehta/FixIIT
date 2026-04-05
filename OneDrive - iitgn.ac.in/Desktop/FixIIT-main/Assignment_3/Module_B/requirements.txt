@@ -1,0 +1,8 @@
+# Module B (Assignment 3): Concurrent Workload & Stress Testing
+# Tests the SQL-backed API from Assignment 2 Module B
+
+# HTTP requests library
+requests>=2.25.0
+
+# Locust - Load testing framework (optional, for advanced testing)
+locust>=2.0.0

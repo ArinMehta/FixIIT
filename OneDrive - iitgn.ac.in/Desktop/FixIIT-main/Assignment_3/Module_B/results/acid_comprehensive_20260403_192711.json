@@ -1,0 +1,38 @@
+{
+  "timestamp": "20260403_192711",
+  "stress_test": {
+    "test": "stress_1000",
+    "requests": 1000,
+    "commits": 899,
+    "rollbacks": 101,
+    "errors": 0,
+    "throughput": 378.3,
+    "avg_ms": 82.24,
+    "p95_ms": 131.47,
+    "consistency": "ok"
+  },
+  "acid_tests": {
+    "atomicity_1": true,
+    "atomicity_2": true,
+    "atomicity_3": true,
+    "atomicity_4": true,
+    "consistency_1": true,
+    "consistency_2": true,
+    "consistency_3": true,
+    "isolation_1": true,
+    "isolation_2": true,
+    "isolation_3": true,
+    "durability_1": true,
+    "durability_2": true,
+    "durability_3": true,
+    "edge_1": true,
+    "edge_2": true,
+    "edge_3": true,
+    "edge_4": true
+  },
+  "summary": {
+    "passed": 17,
+    "total": 17,
+    "all_passed": true
+  }
+}

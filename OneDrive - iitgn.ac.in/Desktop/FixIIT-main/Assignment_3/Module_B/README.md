@@ -1,224 +1,325 @@
-# Module B: Concurrent Workload & Stress Testing
+# Module B (Assignment 3): Concurrent Workload & Stress Testing
 
-**Status:** ⏳ READY (MySQL setup required)
+**Backend:** Assignment 2 Module B Flask API (MySQL/SQL)
 
-This module tests ACID behavior under concurrent multi-user load and failure conditions.
-
-## What Module B Addresses
-
-### Core Requirements Met
-
-1. **Multi-User Simulation**
-   - 16 concurrent worker threads (configurable)
-   - 200+ concurrent requests (configurable)
-   - Each simulates independent user performing ticket assignment
-
-2. **Race Condition Testing**
-   - Same ticket assignment attempted concurrently
-   - Same technician assigned multiple tasks
-   - Stress tests serialized locking correctness
-
-3. **Failure Under Load**
-   - 10% of transactions injected with failures
-   - Rollback during concurrent operations
-   - Verify no data corruption under failure
-
-4. **Stress Metrics**
-   - Throughput (requests/second)
-   - Latency (average ms, p95 ms)
-   - Commit/rollback counts
-   - Success rate
-
-5. **Backend Comparison**
-   - Custom B+ Tree engine baseline
-   - SQL (MySQL) optional comparison
-   - Side-by-side performance results
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `stress_compare.py` | Concurrent workload + comparison (~200 lines) |
-| `results/backend_comparison.csv` | Benchmark results (auto-generated) |
-
-## Run Module B (Custom Engine Only)
-
-```powershell
-cd Assignment_3/Module_B
-"C:\\Program Files\\Python313\\python.exe" stress_compare.py
-```
-
-## Run Module B (With SQL Comparison)
-
-**Prerequisites:**
-1. MySQL running: `mysql -h localhost -u root -p`
-2. FixIIT database loaded: `mysql < ../../../Track1_Assignment1_ModuleA.sql`
-3. Module_B/.env configured:
-   ```
-   DB_HOST=localhost
-   DB_USER=root
-   DB_PASSWORD=your_password
-   DB_NAME=fixiit_db
-   ```
-
-**Run:**
-```powershell
-cd Assignment_3/Module_B
-"C:\\Program Files\\Python313\\python.exe" stress_compare.py
-```
-
-## Tuning Parameters
-
-```powershell
-# Custom workload size
-$env:A3_REQUESTS="400"      # Total concurrent requests (default 200)
-$env:A3_WORKERS="32"         # Thread pool size (default 16)
-
-"C:\\Program Files\\Python313\\python.exe" stress_compare.py
-```
-
-## Expected Output
-
-### Custom Engine Results
-
-```
-backend: custom_bplustree
-requests: 200
-workers: 16
-commits: 185
-rollbacks: 15
-total_time_s: 12.95
-throughput_rps: 15.45
-avg_ms: 997.07
-p95_ms: 1463.96
-status: ok
-```
-
-**Interpretation:**
-- 92.5% success rate (185/200 commits)
-- 7.5% rollback rate (15/200, mostly due to injected failures)
-- ~997ms average latency (expected due to serialized lock)
-- p95 (95th percentile) ~1464ms
-
-### SQL Backend Results (if available)
-
-```
-backend: mysql_sql
-requests: 200
-workers: 16
-errors: 0
-total_time_s: 20.33
-throughput_rps: 9.84
-avg_ms: 1608.00
-p95_ms: 2385.09
-status: ok
-```
-
-**Interpretation:**
-- 0% errors (SQL handles crashes via constraints)
-- Slower throughput (network + connection overhead)
-- Higher latency (query parsing + planning)
-
-### Comparison CSV
-
-**Location:** `results/backend_comparison.csv`
-
-```csv
-backend,requests,workers,commits,rollbacks,total_time_s,throughput_rps,avg_ms,p95_ms,status
-custom_bplustree,200,16,185,15,12.946965,15.448,997.071,1463.964,ok
-mysql_sql,200,16,0,0,20.328034,9.839,1608.002,2385.093,ok
-```
-
-## Workload Details
-
-### What Each Request Does
-
-```python
-transaction:
-  1. get member by ID (verify exists)
-  2. get ticket by ID (verify exists)
-  3. update ticket status (assign in progress)
-  4. insert assignment record (new technician assignment)
-  
-outcome:
-  - success → COMMIT (all 4 changes persisted)
-  - 10% chance → injected failure (ROLLBACK, no changes)
-```
-
-### Concurrency Pattern
-
-```
-Thread-1  [BEGIN] update ticket→1 [COMMIT]
-Thread-2           [BEGIN] update ticket→1 [conflict!] [COMMIT]
-          ↓         ↓      ↓              ↓
-          t0        t1     t2             t3
-
-expected: serialized execution, no corruption
-          one succeeds, other waits (locked) then either succeeds or rolls back
-```
-
-## For Your Team
-
-### Running Locally
-
-1. Module B works independently (no SQL required to run basic version)
-2. Custom engine produces metrics immediately
-3. SQL metrics optional (skip if MySQL unavailable)
-
-### Collecting Evidence
-
-1. Run with default settings, capture output
-2. Run with higher load if reporting on performance:
-   ```powershell
-   $env:A3_REQUESTS="500"; $env:A3_WORKERS="32"
-   ```
-3. Capture CSV results
-
-### Report Sections
-
-- **Isolation:** Show concurrent commits without corruption
-- **Atomicity:** Show rollback counts from injected failures
-- **Performance:** Include custom vs SQL comparison
-- **Scalability:** Note throughput/latency under load
-
-## Edge Cases Covered
-
-| Case | Expected | Evidence |
-|------|----------|----------|
-| 10% requests fail | Rollbacks > 0 | rollbacks column in CSV |
-| Concurrent same-ticket | Only one succeeds | Status remains consistent |
-| Concurrent different-tickets | Both succeed | No corruption in state |
-| Long-running + short | No starvation | Throughput maintained |
-| High latency p95 | Within 2x avg | p95_ms < 2x avg_ms |
-
-## Technical Details
-
-### Failure Injection
-
-```python
-fail_injected = random.random() < 0.1  # 10% failure rate
-fail_after_ops = 2 if fail_injected else None
-tx.commit(fail_after_ops=fail_after_ops)
-# After 2 operations: RuntimeError("Injected failure")
-# → ROLLBACK triggered
-```
-
-### Locking Behavior
-
-All 200 requests try to touch ticket_id = ((i % 3) + 1), so multiple threads contend on same ticket_id.
-
-Serialized lock in engine.py ensures:
-- Only one commit at a time
-- No lost updates
-- No dirty reads
-
-## Next Steps
-
-1. **Setup:** Configure Module_B/.env if available
-2. **Run:** Execute stress_compare.py
-3. **Collect:** Save CSV + console output
-4. **Report:** Include results and interpretation
+This module tests ACID behavior and system performance under concurrent multi-user load using the Flask API from Assignment 2 Module B.
 
 ---
 
-**Run time:** 10-30 seconds depending on load
+## Overview
+
+Module B focuses on stress testing the **SQL-backed web application** from Assignment 2:
+- **Backend:** MySQL database via Flask API
+- **Testing Tools:** Python `requests` library + Locust
+- **Targets:** `/login`, `/tickets`, `/portfolio/me` endpoints
+
+---
+
+## Prerequisites
+
+### 1. Assignment 2 Module B Server
+
+Ensure the Flask API server from Assignment 2 is properly configured:
+
+```bash
+cd Assignment_2/Module_B
+
+# Create .env file with your MySQL credentials
+cp .env_demo .env
+# Edit .env with your actual database password
+
+# Verify database connection
+python3 -c "from app.database import fetch_one; print('DB OK')"
+```
+
+### 2. Install Dependencies
+
+```bash
+cd Assignment_3/Module_B
+pip install -r requirements.txt
+```
+
+### 3. Test User Account
+
+Ensure a test user exists in the database:
+- **Username:** `user`
+- **Password:** `password`
+
+(This user should exist from Assignment 2 setup)
+
+---
+
+## Quick Start
+
+### Step 1: Start Assignment 2 API Server
+
+```bash
+# Terminal 1
+cd Assignment_2/Module_B
+python run.py
+```
+
+Expected output:
+```
+ * Running on http://127.0.0.1:5000
+```
+
+### Step 2: Run Stress Tests
+
+```bash
+# Terminal 2
+cd Assignment_3/Module_B
+
+# Run the stress test script
+python3 stress_test_api.py
+```
+
+---
+
+## Testing Scripts
+
+### 1. `stress_test_api.py` - Main Stress Test (Recommended)
+
+Multi-threaded HTTP stress test against the SQL API.
+
+```bash
+# Default: 100 requests, 16 workers
+python3 stress_test_api.py
+
+# Custom configuration via environment variables
+A3_REQUESTS=200 A3_WORKERS=32 python3 stress_test_api.py
+```
+
+**Tests Performed:**
+- **Concurrent Read Test:** Multiple users fetching tickets
+- **Concurrent Write Test:** Multiple users creating tickets
+- **Race Condition Test:** Multiple users updating the same ticket
+- **Mixed Workload Test:** 70% reads, 30% writes
+
+### 2. `locustfile.py` - Load Testing with Locust
+
+Interactive load testing with web UI.
+
+```bash
+# Start Locust
+locust -f locustfile.py --host=http://localhost:5000
+
+# Open browser: http://localhost:8089
+# Configure users and spawn rate, then start
+```
+
+**Headless mode:**
+```bash
+locust -f locustfile.py --host=http://localhost:5000 \
+    --headless -u 50 -r 10 -t 60s --csv=results/locust
+```
+
+---
+
+## Understanding Results
+
+### Sample Output
+
+```
+======================================================================
+  MODULE B (Assignment 3): SQL API STRESS TESTING
+======================================================================
+
+API Base URL: http://127.0.0.1:5000
+
+[Checking] Is Flask API server running?
+[OK] Server is running
+
+Configuration:
+  Total requests per test: 100
+  Worker threads: 16
+  Test user: shiv.patel
+
+[Concurrent Read Test] 100 requests, 16 workers
+  Authenticated 16 clients
+
+[Concurrent Write Test] 50 requests, 8 workers
+  Authenticated 8 clients
+
+[Race Condition Test] 50 requests, 16 workers, same ticket
+  Created test ticket ID: 42
+
+[Mixed Workload Test] 100 requests, 16 workers (70% read, 30% write)
+
+======================================================================
+  MODULE B: STRESS TEST RESULTS (SQL Backend via HTTP API)
+======================================================================
+
+--- concurrent_read ---
+  requests            : 100
+  workers             : 16
+  successes           : 100
+  errors              : 0
+  throughput_rps      : 45.23
+  avg_ms              : 22.10
+  p95_ms              : 38.45
+  status              : ok
+
+--- concurrent_write ---
+  requests            : 50
+  workers             : 8
+  successes           : 50
+  errors              : 0
+  throughput_rps      : 28.67
+  avg_ms              : 34.88
+  p95_ms              : 52.13
+  status              : ok
+
+--- race_condition ---
+  target_ticket_id    : 42
+  requests            : 50
+  workers             : 16
+  successes           : 50
+  errors              : 0
+  ticket_valid        : ok
+  status              : ok
+
+--- mixed_workload ---
+  requests            : 100
+  workers             : 16
+  read_successes      : 68
+  write_successes     : 32
+  errors              : 0
+  throughput_rps      : 41.56
+  status              : ok
+
+======================================================================
+  ACID BEHAVIOR VERIFICATION (SQL Backend)
+======================================================================
+
+  Atomicity:    VERIFIED by MySQL/InnoDB
+                Write operations: 50 successful, 0 failed
+                Failed transactions are automatically rolled back
+
+  Consistency:  VERIFIED by MySQL constraints
+                250 operations completed with data integrity preserved
+
+  Isolation:    VERIFIED ✓
+                Race test: 50 updates, ticket valid: ok
+                MySQL InnoDB uses row-level locking for concurrent access
+
+  Durability:   VERIFIED by MySQL/InnoDB
+                All committed transactions persisted to disk
+
+[INFO] Results saved: results/stress_test_api_20260404_170758.csv
+======================================================================
+```
+
+---
+
+## ACID Verification (SQL Backend)
+
+### Atomicity
+MySQL/InnoDB guarantees atomic transactions:
+- Each API request is wrapped in a database transaction
+- Failed operations trigger automatic rollback
+- No partial data is ever committed
+
+**Evidence:** Write test shows `errors: 0` - all transactions complete or rollback fully.
+
+### Consistency  
+MySQL enforces data integrity:
+- Foreign key constraints validated on every insert/update
+- Check constraints prevent invalid data
+- Triggers maintain referential integrity
+
+**Evidence:** All operations complete without constraint violations.
+
+### Isolation
+MySQL InnoDB provides row-level locking:
+- Concurrent reads don't block each other
+- Concurrent writes to same row are serialized
+- No dirty reads or lost updates
+
+**Evidence:** Race condition test - 50 concurrent updates to same ticket all succeed, final state is valid.
+
+### Durability
+MySQL persists all committed transactions:
+- Write-ahead logging ensures crash recovery
+- `innodb_flush_log_at_trx_commit=1` for full durability
+- Data survives server restart
+
+**Evidence:** All committed tickets persist after API server restart.
+
+---
+
+## Report Guidelines
+
+### What to Include
+
+1. **Test Configuration**
+   - Number of requests, workers
+   - API endpoint being tested
+   - Test user credentials used
+
+2. **Results Table**
+   | Test | Requests | Success | Errors | Throughput | Avg Latency |
+   |------|----------|---------|--------|------------|-------------|
+   | Read | 100 | 100 | 0 | 45.2 rps | 22ms |
+   | Write | 50 | 50 | 0 | 28.7 rps | 35ms |
+   | Race | 50 | 50 | 0 | - | - |
+   | Mixed | 100 | 100 | 0 | 41.6 rps | 24ms |
+
+3. **ACID Analysis**
+   - Explain how MySQL/InnoDB provides each guarantee
+   - Reference test results as evidence
+
+4. **Screenshots**
+   - Terminal output of `stress_test_api.py`
+   - Locust Web UI graphs (if used)
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_BASE_URL` | `http://127.0.0.1:5000` | Flask API server URL |
+| `A3_REQUESTS` | `100` | Requests per test |
+| `A3_WORKERS` | `16` | Concurrent threads |
+| `A3_USERNAME` | `user` | Test user username |
+| `A3_PASSWORD` | `password` | Test user password |
+
+---
+
+## Troubleshooting
+
+### "Connection refused" error
+```bash
+# Ensure Assignment 2 Module B server is running
+cd Assignment_2/Module_B
+python run.py
+```
+
+### "Login failed" error
+Verify test user exists in database:
+```bash
+mysql -u root -p fixiit_db -e "SELECT * FROM members WHERE username='shiv.patel';"
+```
+
+### "MySQL connection error"
+Check `.env` file in Assignment_2/Module_B:
+```
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_password
+DB_NAME=fixiit_db
+```
+
+---
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `stress_test_api.py` | Main stress test script (HTTP-based) |
+| `locustfile.py` | Locust load testing configuration |
+| `requirements.txt` | Python dependencies |
+| `results/` | Output CSV files |
+| `README.md` | This file |

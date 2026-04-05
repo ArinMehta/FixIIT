@@ -1,0 +1,5 @@
+avg_ms,errors,p95_ms,read_successes,requests,status,successes,target_ticket_id,test,throughput_rps,ticket_valid,total_time_s,workers,write_successes
+192.64,0,247.47,,100,ok,100,,concurrent_read,79.02,,1.2654,16,
+57.33,0,79.93,,50,ok,50,,concurrent_write,131.26,,0.3809,8,
+96.73,50,134.51,,50,partial,0,288,race_condition,,ok,0.3382,16,
+180.97,0,269.95,69,100,ok,,,mixed_workload,82.96,,1.2055,16,31

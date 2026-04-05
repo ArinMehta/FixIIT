@@ -1,0 +1,5 @@
+reason,status,test
+Could not authenticate any clients,failed,concurrent_read
+Could not authenticate any clients,failed,concurrent_write
+Auth failed,failed,race_condition
+Auth failed,failed,mixed_workload
