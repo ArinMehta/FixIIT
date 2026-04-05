@@ -30,8 +30,8 @@ from locust.runners import MasterRunner
 
 
 # Test user credentials (must exist in database)
-TEST_USERNAME = "shiv.patel"
-TEST_PASSWORD = "password123"
+TEST_USERNAME = "user"
+TEST_PASSWORD = "user123"
 
 
 # ============================================================================
@@ -143,11 +143,12 @@ class RaceConditionUser(HttpUser):
         response = self.client.get("/tickets", headers=self._headers())
         if response.status_code != 200:
             return
-        
-        tickets = response.json()
+
+        tickets_data = response.json()
+        tickets = tickets_data.get("tickets", []) if tickets_data else []
         if not tickets:
             return
-        
+
         # Pick a ticket to update (all users may pick same ticket = race)
         ticket = tickets[0] if tickets else None
         if not ticket:
