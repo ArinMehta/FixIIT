@@ -6,11 +6,12 @@
 
 | File | Purpose | For Report |
 |------|---------|----------|  
-| `Assignment_3/Module_A/run_acid_demo.py` | Tests A, C, D (Atomicity, Consistency, Durability) | ✓ Primary |
-| `Assignment_3/Module_A/run_isolation_demo.py` | Tests I (Isolation) | ✓ Primary |
+| `Assignment_3/Module_A/run_acid_demo.py` | Tests A, C, I, D (Atomicity, Consistency, Isolation, Durability) | ✓ Primary |
 | `Assignment_3/Module_A/run_edge_cases.py` | Tests 6 edge cases mapping to assignment requirements | ✓ Optional (add if space) |
 | `Assignment_3/Module_A/custom_engine/engine.py` | Engine code with locks, WAL, recovery | Code refs |
 | `Assignment_3/Module_A/custom_engine/models.py` | FixIIT schema (members, tickets, assignments) | Code refs |
+| `Assignment_3/Module_A/run_isolation_demo.py` | Legacy isolation-only backup | Optional backup |
+
 
 ## One-Time Setup (before first run)
 
@@ -20,19 +21,17 @@ cd "c:\Users\shiva\OneDrive - iitgn.ac.in\Desktop\FixIIT-main\Assignment_3\Modul
 # Clean state before running
 Remove-Item -Path "custom_engine_state" -Recurse -Force -ErrorAction SilentlyContinue
 
-# Run all tests (option 1: separately for clarity)
+# Run combined ACID file (A, C, I, D)
 python .\run_acid_demo.py
-python .\run_isolation_demo.py
-python .\run_edge_cases.py
 
-# Or (option 2: one by one for video scripting)
+# Run edge cases separately
+python .\run_edge_cases.py
 ```
 
 Results summary:
 ```
-run_acid_demo.py      → [OK] All ACID checks completed
-run_isolation_demo.py → [OK] Isolation check #1 & #2 passed
-run_edge_cases.py     → [OK] All edge cases completed
+run_acid_demo.py   → [OK] All ACID checks completed
+run_edge_cases.py  → [OK] All edge cases completed
 ```
 
 ---
@@ -109,7 +108,7 @@ Appendix C: run_edge_cases.py (selected cases: 1, 2, 4, 6)
 
 Write this in your report:
 
-**We demonstrate ACID properties on a B+ tree-based database using a multi-relation transaction that assigns tickets to technicians. The transaction touches 3 relations (members, tickets, assignments) and either succeeds completely or fails completely. We cover not only standard ACID scenarios but also failure injection and recovery edge cases.**
+**We demonstrate ACID properties on a B+ tree-based database using a multi-relation transaction that assigns tickets to technicians. The transaction touches 3 relations (members, tickets, assignments) and either succeeds completely or fails completely. In the same script, we also demonstrate isolation by showing that uncommitted changes are invisible to concurrent transactions. We cover not only standard ACID scenarios but also failure injection and recovery edge cases.**
 
 ## Screenshot Sequence (for PDF report)
 
@@ -203,7 +202,7 @@ for crash recovery.
 ### Screenshot 6: Isolation Test - T2 Cannot See T1 Uncommitted
 Capture:
 ```
-=== Isolation Demo (Module A) ===
+=== Isolation Test (No Dirty Reads) ===
 [STEP] T1 staged update (uncommitted): priority=Isolation-T1
 [STEP] T2 read before T1 commit: 
 {
@@ -250,7 +249,7 @@ corruption during commit phase.
 ---
 
 5. **(Optional) Show Edge Cases (1 min):**
-   - Terminal: `python .\.run_edge_cases.py`
+   - Terminal: `python .\run_edge_cases.py`
    - Highlight: [PASS] lines for edge cases 1, 4, 6
    - Say: "These are advanced failure scenarios. All tests pass, proving robustness."
 

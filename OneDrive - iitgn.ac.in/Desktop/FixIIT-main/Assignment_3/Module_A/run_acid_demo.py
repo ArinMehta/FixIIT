@@ -59,6 +59,46 @@ def pretty_state(db):
     }
 
 
+def isolation_demo(db, storage):
+    print("\n=== Isolation Test (No Dirty Reads) ===")
+
+    t1 = db.begin()
+    ticket_before = t1.get("tickets", 1)
+    if ticket_before is None:
+        raise RuntimeError("Ticket 1 not found")
+
+    staged = dict(ticket_before)
+    staged["priority"] = "Isolation-T1"
+    t1.update("tickets", 1, staged)
+
+    t2 = db.begin()
+    t2_view = t2.get("tickets", 1)
+
+    print("[STEP] T1 staged update (uncommitted): priority=Isolation-T1")
+    print(f"[STEP] T2 read before T1 commit: {json.dumps(t2_view, indent=2)}")
+
+    if t2_view is not None and t2_view.get("priority") == "Isolation-T1":
+        print("[FAIL] Isolation violated: T2 observed uncommitted write from T1")
+    else:
+        print("[OK] Isolation check #1 passed: no dirty read")
+
+    t1.commit()
+    t2.rollback()
+
+    t3 = db.begin()
+    t3_view = t3.get("tickets", 1)
+    t3.rollback()
+
+    print(f"[STEP] T3 read after T1 commit: {json.dumps(t3_view, indent=2)}")
+
+    if t3_view is not None and t3_view.get("priority") == "Isolation-T1":
+        print("[OK] Isolation check #2 passed: committed data is visible after commit")
+    else:
+        print("[FAIL] Isolation violated: committed data not visible as expected")
+
+    print("\n[INFO] Commit critical section is serialized by an RLock in engine.commit().")
+
+
 def main():
     storage = storage_path_from_repo()
     db = init_fixiit_db(storage)
@@ -77,10 +117,10 @@ def main():
     print("[ATOMICITY CHECK] State after failure:")
     print(json.dumps(state_after_failure, indent=2))
     
-    # Verify atomicity: assignment_id=10 should NOT exist (rollback prevented insert)
+    # Verify atomicity: assignment_id=100 should NOT exist (rollback prevented insert)
     assignments_after = state_after_failure["assignments"]
-    assignment_10_exists = any(a["assignment_id"] == 10 for a in assignments_after)
-    if not assignment_10_exists:
+    assignment_100_exists = any(a["assignment_id"] == 100 for a in assignments_after)
+    if not assignment_100_exists:
         print("[OK] Atomicity verified: partial transaction was rolled back")
     else:
         print("[FAIL] Atomicity violated: partial state was committed")
@@ -102,6 +142,8 @@ def main():
         print("[OK] Durability verified: state matches after restart")
     else:
         print("[FAIL] Durability violated: state diverged after restart")
+
+    isolation_demo(db_restarted, storage)
 
     print(f"\n[INFO] WAL location: {Path(storage) / 'wal.jsonl'}")
     print("[OK] All ACID checks completed")
