@@ -20,12 +20,12 @@ def create_app():
         static_url_path='/static'
     )
 
-    # Ensure Module B tables exist for local/dev usage.
+    # Ensure coordinator and shard-local Module B tables exist for local/dev usage.
     try:
         initialize_module_b_tables()
     except DatabaseError as exc:
         # Do not crash app startup; endpoints will still show explicit DB errors.
-        print(f"[WARN] Module B table initialization failed: {exc}")
+        print(f"[WARN] Module B coordinator/shard initialization failed: {exc}")
     
     # Import and register API blueprint
     from app.api import api

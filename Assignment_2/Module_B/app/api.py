@@ -2,17 +2,355 @@
 REST API endpoints for FixIIT Module B.
 Includes authentication, ticket management, and admin operations.
 """
+from datetime import date, datetime, time
+import re
+
 from flask import Blueprint, request, jsonify, g, render_template, redirect, url_for
 from app.auth import login_and_issue_token
 from app.rbac import login_required, admin_required
 from app.audit_logger import log_api_event, log_security_event
 from app import models
 from app.database import (
-    fetch_all, fetch_one, execute_write,
-    is_member_admin
+    allocate_ticket_id,
+    category_exists,
+    DatabaseError,
+    execute_write,
+    fetch_all,
+    fetch_one,
+    is_member_admin,
+    is_ticket_sharding_migration_complete,
+    location_exists,
+    member_exists,
+    status_exists,
+)
+from app.sharding import (
+    all_ticket_shards,
+    get_ticket_shard_config,
+    resolve_ticket_shard,
+    shard_for_member,
 )
 
 api = Blueprint('api', __name__)
+
+
+VALID_PRIORITIES = {'Low', 'Medium', 'High', 'Urgent', 'Emergency'}
+TAMPER_EVENTS_PER_SOURCE = 200
+TAMPER_EVENTS_RESPONSE_LIMIT = 200
+DATE_ONLY_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+ISO_DATETIME_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?$')
+
+
+class MigrationIncompleteError(RuntimeError):
+    """Raised when ticket writes are attempted before migration completion."""
+
+
+class TicketIntegrityError(RuntimeError):
+    """Raised when cross-shard ticket corruption is detected."""
+
+
+class TicketRepairUnavailableError(RuntimeError):
+    """Raised when a cross-shard repair scan cannot complete safely."""
+
+
+def _serialize_ticket(ticket):
+    """Convert one ticket row into the existing API response shape."""
+    return {
+        'ticket_id': ticket.get('ticket_id'),
+        'title': ticket.get('title'),
+        'description': ticket.get('description'),
+        'member_id': ticket.get('member_id'),
+        'location_id': ticket.get('location_id'),
+        'category_id': ticket.get('category_id'),
+        'priority': ticket.get('priority'),
+        'status_id': ticket.get('status_id'),
+        'created_date': str(ticket.get('created_at')) if ticket.get('created_at') else None,
+        'updated_date': str(ticket.get('updated_at')) if ticket.get('updated_at') else None,
+    }
+
+
+def _parse_positive_int(value, field_name):
+    """Validate that an incoming value is a positive integer."""
+    if isinstance(value, bool):
+        raise ValueError(f'{field_name} must be a positive integer')
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'{field_name} must be a positive integer') from exc
+
+    if parsed <= 0:
+        raise ValueError(f'{field_name} must be a positive integer')
+    return parsed
+
+
+def _normalize_priority(value):
+    """Validate one ticket priority against the existing allowed set."""
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if text not in VALID_PRIORITIES:
+        raise ValueError('priority must be one of Low, Medium, High, Urgent, Emergency')
+    return text
+
+
+def _normalize_required_ticket_text(value, field_name):
+    """Reject nulls and blank text for required ticket string inputs."""
+    if value is None:
+        raise ValueError(f'{field_name} cannot be null')
+
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f'{field_name} cannot be empty')
+    return text
+
+
+def _normalize_optional_ticket_title(value):
+    """Normalize title while preserving the default for omitted titles."""
+    if value is None:
+        raise ValueError('title cannot be null')
+
+    text = str(value).strip()
+    return text or 'Maintenance Request'
+
+
+def _parse_ticket_datetime(value, field_name, is_end=False):
+    """Parse admin ticket filter datetimes from query params."""
+    if value is None or str(value).strip() == '':
+        return None
+
+    text = str(value).strip()
+    try:
+        if DATE_ONLY_PATTERN.fullmatch(text):
+            parsed_date = date.fromisoformat(text)
+            boundary_time = time(23, 59, 59) if is_end else time(0, 0, 0)
+            return datetime.combine(parsed_date, boundary_time)
+        if ISO_DATETIME_PATTERN.fullmatch(text):
+            return datetime.fromisoformat(text.replace(' ', 'T')).replace(microsecond=0)
+    except ValueError as exc:
+        raise ValueError(
+            f'{field_name} must be ISO datetime or YYYY-MM-DD'
+        ) from exc
+
+    raise ValueError(f'{field_name} must be ISO datetime or YYYY-MM-DD')
+
+
+def _validate_ticket_create_references(member_id, location_id, category_id):
+    """Validate sharded ticket references against coordinator tables."""
+    if not member_exists(member_id):
+        raise ValueError('Authenticated member does not exist')
+    if not location_exists(location_id):
+        raise ValueError('location_id does not exist')
+    if not category_exists(category_id):
+        raise ValueError('category_id does not exist')
+    if not status_exists(1):
+        raise ValueError('Default ticket status_id=1 is missing')
+
+
+def _ensure_ticket_writes_enabled():
+    """Block ticket writes until the explicit sharding migration has completed."""
+    if not is_ticket_sharding_migration_complete():
+        raise MigrationIncompleteError(
+            'Ticket writes are disabled until Assignment 4 ticket sharding migration completes'
+        )
+
+
+def _build_admin_ticket_filters():
+    """Build shard-safe SQL filters for the cross-shard admin ticket view."""
+    created_from = _parse_ticket_datetime(
+        request.args.get('created_from'),
+        'created_from',
+    )
+    created_to = _parse_ticket_datetime(
+        request.args.get('created_to'),
+        'created_to',
+        is_end=True,
+    )
+    ticket_id_min = request.args.get('ticket_id_min')
+    ticket_id_max = request.args.get('ticket_id_max')
+    parsed_ticket_id_min = None
+    parsed_ticket_id_max = None
+
+    if ticket_id_min not in (None, ''):
+        parsed_ticket_id_min = _parse_positive_int(ticket_id_min, 'ticket_id_min')
+    if ticket_id_max not in (None, ''):
+        parsed_ticket_id_max = _parse_positive_int(ticket_id_max, 'ticket_id_max')
+    if created_from and created_to and created_from > created_to:
+        raise ValueError('created_from must be less than or equal to created_to')
+    if (
+        parsed_ticket_id_min is not None
+        and parsed_ticket_id_max is not None
+        and parsed_ticket_id_min > parsed_ticket_id_max
+    ):
+        raise ValueError('ticket_id_min must be less than or equal to ticket_id_max')
+
+    clauses = []
+    params = []
+
+    if created_from:
+        clauses.append('created_at >= %s')
+        params.append(created_from.strftime('%Y-%m-%d %H:%M:%S'))
+    if created_to:
+        clauses.append('created_at <= %s')
+        params.append(created_to.strftime('%Y-%m-%d %H:%M:%S'))
+    if parsed_ticket_id_min is not None:
+        clauses.append('ticket_id >= %s')
+        params.append(parsed_ticket_id_min)
+    if parsed_ticket_id_max is not None:
+        clauses.append('ticket_id <= %s')
+        params.append(parsed_ticket_id_max)
+
+    query = """
+        SELECT ticket_id, title, description, member_id, location_id, category_id,
+               priority, status_id, created_at, updated_at
+        FROM tickets
+    """
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " ORDER BY created_at DESC, ticket_id DESC"
+    return query, tuple(params)
+
+
+def _fetch_tamper_events_for_source(source_name, source_type, db_config, shard_idx=None):
+    """Fetch only the newest bounded tamper rows from one audit source."""
+    rows = fetch_all(
+        """
+        SELECT
+            id, table_name, operation, pk_value, actor_member_id,
+            endpoint, source, before_json, after_json, changed_at
+        FROM db_change_audit
+        WHERE source = 'DIRECT_DB'
+        ORDER BY changed_at DESC
+        LIMIT %s
+        """,
+        (TAMPER_EVENTS_PER_SOURCE,),
+        db_config=db_config,
+    )
+
+    for row in rows:
+        row['source_name'] = source_name
+        row['source_type'] = source_type
+        row['shard_idx'] = shard_idx
+        row['source_event_id'] = row.get('id')
+        row['event_id'] = f"{source_name}:{row.get('id')}"
+    return rows
+
+
+def _upsert_ticket_locator(ticket_id, member_id, shard_idx, actor_member_id, endpoint):
+    """Create or repair the authoritative ticket locator row."""
+    execute_write(
+        """
+        INSERT INTO ticket_locator (ticket_id, member_id, shard_idx, created_at, updated_at)
+        VALUES (%s, %s, %s, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+            member_id = VALUES(member_id),
+            shard_idx = VALUES(shard_idx),
+            updated_at = NOW()
+        """,
+        (ticket_id, member_id, shard_idx),
+        audit_context={
+            'actor_member_id': actor_member_id,
+            'endpoint': endpoint,
+        },
+    )
+
+
+def _find_ticket_across_shards(ticket_id):
+    """Find a ticket across all shards for stale-locator recovery."""
+    hits = []
+    for shard_idx, shard_config in all_ticket_shards():
+        row = fetch_one(
+            """
+            SELECT ticket_id, member_id
+            FROM tickets
+            WHERE ticket_id = %s
+            """,
+            (ticket_id,),
+            db_config=shard_config,
+        )
+        if row:
+            hits.append({
+                'ticket_id': row['ticket_id'],
+                'member_id': row['member_id'],
+                'shard_idx': shard_idx,
+            })
+    return hits
+
+
+def _validate_ticket_shard_hit(ticket_id, member_id, shard_idx):
+    """Reject ticket rows that violate the approved member_id shard formula."""
+    expected_shard_idx = shard_for_member(member_id)
+    if expected_shard_idx != int(shard_idx):
+        raise TicketIntegrityError(
+            f'ticket_id {ticket_id} is stored on shard {shard_idx}, expected {expected_shard_idx}'
+        )
+
+
+def _resolve_ticket_for_admin_action(ticket_id, actor_member_id, endpoint):
+    """Resolve a ticket shard and repair or remove stale locator rows when needed."""
+    locator = resolve_ticket_shard(ticket_id)
+    if locator:
+        shard_config = get_ticket_shard_config(locator['shard_idx'])
+        shard_row = fetch_one(
+            "SELECT ticket_id, member_id FROM tickets WHERE ticket_id = %s",
+            (ticket_id,),
+            db_config=shard_config,
+        )
+        if shard_row:
+            _validate_ticket_shard_hit(
+                ticket_id,
+                shard_row['member_id'],
+                locator['shard_idx'],
+            )
+            if int(shard_row['member_id']) != int(locator['member_id']):
+                _upsert_ticket_locator(
+                    ticket_id,
+                    shard_row['member_id'],
+                    locator['shard_idx'],
+                    actor_member_id,
+                    f'{endpoint} - locator member repair',
+                )
+            return {
+                'ticket_id': ticket_id,
+                'member_id': int(shard_row['member_id']),
+                'shard_idx': int(locator['shard_idx']),
+            }
+
+    try:
+        shard_hits = _find_ticket_across_shards(ticket_id)
+    except DatabaseError as exc:
+        raise TicketRepairUnavailableError(
+            f'ticket_id {ticket_id} could not be repair-resolved because shard scan failed: {exc}'
+        ) from exc
+
+    if len(shard_hits) > 1:
+        raise TicketIntegrityError(f'ticket_id {ticket_id} exists on multiple shards')
+    if not shard_hits:
+        if locator:
+            execute_write(
+                "DELETE FROM ticket_locator WHERE ticket_id = %s",
+                (ticket_id,),
+                audit_context={
+                    'actor_member_id': actor_member_id,
+                    'endpoint': f'{endpoint} - stale locator cleanup',
+                },
+            )
+        return None
+
+    repaired = shard_hits[0]
+    _validate_ticket_shard_hit(
+        repaired['ticket_id'],
+        repaired['member_id'],
+        repaired['shard_idx'],
+    )
+    _upsert_ticket_locator(
+        ticket_id,
+        repaired['member_id'],
+        repaired['shard_idx'],
+        actor_member_id,
+        f'{endpoint} - {"locator" if locator else "missing locator"} repair',
+    )
+    return repaired
 
 
 @api.route('/', methods=['GET'])
@@ -344,35 +682,23 @@ def get_tickets():
     """
     try:
         member_id = g.member_id
-        username = g.username
-        
         query = """
             SELECT ticket_id, title, description, member_id, location_id, category_id,
                    priority, status_id, created_at, updated_at
             FROM tickets
             WHERE member_id = %s
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, ticket_id DESC
         """
-        tickets = fetch_all(query, (member_id,))
+        if is_ticket_sharding_migration_complete():
+            shard_idx = shard_for_member(member_id)
+            shard_config = get_ticket_shard_config(shard_idx)
+            tickets = fetch_all(query, (member_id,), db_config=shard_config)
+        else:
+            tickets = fetch_all(query, (member_id,))
+        ticket_list = [_serialize_ticket(ticket) for ticket in tickets]
 
-        ticket_list = []
-        for ticket in tickets:
-            ticket_list.append({
-                'ticket_id': ticket.get('ticket_id'),
-                'title': ticket.get('title'),
-                'description': ticket.get('description'),
-                'member_id': ticket.get('member_id'),
-                'location_id': ticket.get('location_id'),
-                'category_id': ticket.get('category_id'),
-                'priority': ticket.get('priority'),
-                'status_id': ticket.get('status_id'),
-                'created_date': str(ticket.get('created_at')) if ticket.get('created_at') else None,
-                'updated_date': str(ticket.get('updated_at')) if ticket.get('updated_at') else None
-            })
-        
         log_api_event('/tickets', 'SUCCESS', f'Retrieved {len(ticket_list)} tickets', member_id)
         return jsonify({'tickets': ticket_list, 'count': len(ticket_list)}), 200
-    
     except Exception as e:
         member_id = getattr(g, 'member_id', None)
         log_api_event('/tickets', 'ERROR', str(e), member_id)
@@ -385,33 +711,31 @@ def get_all_tickets_admin():
     """Fetch all tickets for admin management view."""
     try:
         member_id = g.member_id
+        query, params = _build_admin_ticket_filters()
 
-        query = """
-            SELECT ticket_id, title, description, member_id, location_id, category_id,
-                   priority, status_id, created_at, updated_at
-            FROM tickets
-            ORDER BY created_at DESC
-        """
-        tickets = fetch_all(query)
+        if is_ticket_sharding_migration_complete():
+            tickets = []
+            for _shard_idx, shard_config in all_ticket_shards():
+                tickets.extend(fetch_all(query, params, db_config=shard_config))
+        else:
+            tickets = fetch_all(query, params)
 
-        ticket_list = []
-        for ticket in tickets:
-            ticket_list.append({
-                'ticket_id': ticket.get('ticket_id'),
-                'title': ticket.get('title'),
-                'description': ticket.get('description'),
-                'member_id': ticket.get('member_id'),
-                'location_id': ticket.get('location_id'),
-                'category_id': ticket.get('category_id'),
-                'priority': ticket.get('priority'),
-                'status_id': ticket.get('status_id'),
-                'created_date': str(ticket.get('created_at')) if ticket.get('created_at') else None,
-                'updated_date': str(ticket.get('updated_at')) if ticket.get('updated_at') else None
-            })
+        tickets.sort(
+            key=lambda ticket: (
+                ticket.get('created_at') or datetime.min,
+                ticket.get('ticket_id') or 0,
+            ),
+            reverse=True,
+        )
+        ticket_list = [_serialize_ticket(ticket) for ticket in tickets]
 
         log_api_event('/admin/tickets', 'SUCCESS', f'Retrieved {len(ticket_list)} tickets', member_id)
         return jsonify({'tickets': ticket_list, 'count': len(ticket_list)}), 200
 
+    except ValueError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event('/admin/tickets', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 400
     except Exception as e:
         member_id = getattr(g, 'member_id', None)
         log_api_event('/admin/tickets', 'ERROR', str(e), member_id)
@@ -425,27 +749,46 @@ def get_tamper_events():
     try:
         member_id = g.member_id
 
-        query = """
-            SELECT
-                id, table_name, operation, pk_value, actor_member_id,
-                endpoint, source, before_json, after_json, changed_at
-            FROM db_change_audit
-            WHERE source = 'DIRECT_DB'
-            ORDER BY changed_at DESC
-            LIMIT 200
-        """
-        rows = fetch_all(query)
+        rows = _fetch_tamper_events_for_source(
+            source_name='coordinator',
+            source_type='coordinator',
+            db_config=None,
+        )
+        for _shard_idx, shard_config in all_ticket_shards():
+            rows.extend(
+                _fetch_tamper_events_for_source(
+                    source_name=f'shard_{_shard_idx}',
+                    source_type='ticket_shard',
+                    db_config=shard_config,
+                    shard_idx=_shard_idx,
+                )
+            )
+
+        rows.sort(
+            key=lambda row: (
+                row.get('changed_at') or datetime.min,
+                row.get('source_name') or '',
+                row.get('id') or 0,
+            ),
+            reverse=True,
+        )
+        rows = rows[:TAMPER_EVENTS_RESPONSE_LIMIT]
 
         events = []
         for row in rows:
             events.append({
                 'id': row.get('id'),
+                'event_id': row.get('event_id'),
+                'source_event_id': row.get('source_event_id'),
                 'table_name': row.get('table_name'),
                 'operation': row.get('operation'),
                 'pk_value': row.get('pk_value'),
                 'actor_member_id': row.get('actor_member_id'),
                 'endpoint': row.get('endpoint'),
                 'source': row.get('source'),
+                'source_name': row.get('source_name'),
+                'source_type': row.get('source_type'),
+                'shard_idx': row.get('shard_idx'),
                 'before_json': row.get('before_json'),
                 'after_json': row.get('after_json'),
                 'changed_at': str(row.get('changed_at')) if row.get('changed_at') else None
@@ -470,46 +813,87 @@ def create_ticket():
     """
     try:
         member_id = g.member_id
-        username = g.username
+        _ensure_ticket_writes_enabled()
         data = request.get_json()
         
         if not data or 'location_id' not in data or 'category_id' not in data or 'description' not in data:
             log_api_event('/tickets (POST)', 'FAILED', 'Missing required fields', member_id)
             return jsonify({'error': 'Missing required fields: location_id, category_id, description'}), 400
-        
-        location_id = data.get('location_id')
-        category_id = data.get('category_id')
-        description = data.get('description')
-        title = data.get('title', 'Maintenance Request')
-        priority = data.get('priority', 'Medium')
 
-        # Insert ticket with status_id = 1 (Open)
-        query = """
+        location_id = _parse_positive_int(data.get('location_id'), 'location_id')
+        category_id = _parse_positive_int(data.get('category_id'), 'category_id')
+        description = _normalize_required_ticket_text(data.get('description'), 'description')
+        title = (
+            'Maintenance Request'
+            if 'title' not in data
+            else _normalize_optional_ticket_title(data.get('title'))
+        )
+        priority = _normalize_priority(data.get('priority', 'Medium'))
+        shard_idx = shard_for_member(member_id)
+        shard_config = get_ticket_shard_config(shard_idx)
+
+        _validate_ticket_create_references(member_id, location_id, category_id)
+
+        ticket_id = allocate_ticket_id()
+        insert_query = """
             INSERT INTO tickets (
-                title, description, member_id, location_id, category_id,
+                ticket_id, title, description, member_id, location_id, category_id,
                 priority, status_id, created_at, updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, 1, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 1, NOW(), NOW())
         """
         result = execute_write(
-            query,
-            (title, description, member_id, location_id, category_id, priority),
+            insert_query,
+            (ticket_id, title, description, member_id, location_id, category_id, priority),
             audit_context={
                 'actor_member_id': member_id,
                 'endpoint': '/tickets (POST)'
-            }
+            },
+            db_config=shard_config,
         )
-        
+
+        try:
+            _upsert_ticket_locator(
+                ticket_id,
+                member_id,
+                shard_idx,
+                member_id,
+                '/tickets (POST) - locator',
+            )
+        except Exception as locator_exc:
+            execute_write(
+                "DELETE FROM tickets WHERE ticket_id = %s",
+                (ticket_id,),
+                audit_context={
+                    'actor_member_id': member_id,
+                    'endpoint': '/tickets (POST) - locator rollback'
+                },
+                db_config=shard_config,
+            )
+            raise RuntimeError(
+                f'locator insert failed after ticket insert: {locator_exc}'
+            ) from locator_exc
+
         if result:
             log_api_event('/tickets (POST)', 'SUCCESS', f'Created ticket', member_id)
             return jsonify({'message': 'Ticket created successfully'}), 201
-        else:
-            log_api_event('/tickets (POST)', 'FAILED', 'Failed to create ticket', member_id)
-            return jsonify({'error': 'Failed to create ticket'}), 500
-    
+
+        log_api_event('/tickets (POST)', 'FAILED', 'Failed to create ticket', member_id)
+        return jsonify({'error': 'Failed to create ticket'}), 500
+
+    except ValueError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event('/tickets (POST)', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 400
+    except MigrationIncompleteError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event('/tickets (POST)', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 503
     except Exception as e:
         member_id = getattr(g, 'member_id', None)
         log_api_event('/tickets (POST)', 'ERROR', str(e), member_id)
+        if 'locator insert failed after ticket insert' in str(e):
+            return jsonify({'error': 'Failed to create ticket because ticket locator write failed'}), 500
         return jsonify({'error': 'Failed to create ticket'}), 500
 
 
@@ -523,12 +907,23 @@ def update_ticket(ticket_id):
     """
     try:
         member_id = g.member_id
-        username = g.username
+        _ensure_ticket_writes_enabled()
         data = request.get_json()
         
         if not data:
             log_api_event(f'/tickets/{ticket_id} (PUT)', 'FAILED', 'No update data provided', member_id)
             return jsonify({'error': 'No data to update'}), 400
+
+        resolved_ticket = _resolve_ticket_for_admin_action(
+            ticket_id,
+            member_id,
+            f'/tickets/{ticket_id} (PUT)',
+        )
+        if not resolved_ticket:
+            log_api_event(f'/tickets/{ticket_id} (PUT)', 'FAILED', 'Ticket not found in locator', member_id)
+            return jsonify({'error': 'Ticket not found'}), 404
+
+        shard_config = get_ticket_shard_config(resolved_ticket['shard_idx'])
         
         # Build dynamic update query
         allowed_fields = ['status_id', 'description', 'priority', 'title']
@@ -537,8 +932,17 @@ def update_ticket(ticket_id):
         
         for field in allowed_fields:
             if field in data:
+                if field == 'status_id':
+                    status_id = _parse_positive_int(data[field], 'status_id')
+                    if not status_exists(status_id):
+                        log_api_event(f'/tickets/{ticket_id} (PUT)', 'FAILED', 'status_id does not exist', member_id)
+                        return jsonify({'error': 'status_id does not exist'}), 400
+                    values.append(status_id)
+                elif field == 'priority':
+                    values.append(_normalize_priority(data[field]))
+                else:
+                    values.append(_normalize_required_ticket_text(data[field], field))
                 updates.append(f"{field} = %s")
-                values.append(data[field])
         
         if not updates:
             log_api_event(f'/tickets/{ticket_id} (PUT)', 'FAILED', 'No valid fields to update', member_id)
@@ -547,17 +951,56 @@ def update_ticket(ticket_id):
         values.append(ticket_id)
         query = f"UPDATE tickets SET {', '.join(updates)}, updated_at = NOW() WHERE ticket_id = %s"
         
-        execute_write(
+        updated_rows = execute_write(
             query,
             tuple(values),
             audit_context={
                 'actor_member_id': member_id,
                 'endpoint': f'/tickets/{ticket_id} (PUT)'
-            }
+            },
+            db_config=shard_config,
         )
+        if not updated_rows:
+            existing_ticket = fetch_one(
+                "SELECT ticket_id FROM tickets WHERE ticket_id = %s",
+                (ticket_id,),
+                db_config=shard_config,
+            )
+            if not existing_ticket:
+                execute_write(
+                    "DELETE FROM ticket_locator WHERE ticket_id = %s",
+                    (ticket_id,),
+                    audit_context={
+                        'actor_member_id': member_id,
+                        'endpoint': f'/tickets/{ticket_id} (PUT) - stale locator cleanup',
+                    },
+                )
+                log_api_event(
+                    f'/tickets/{ticket_id} (PUT)',
+                    'FAILED',
+                    'Ticket disappeared before update completed',
+                    member_id,
+                )
+                return jsonify({'error': 'Ticket not found'}), 404
         log_api_event(f'/tickets/{ticket_id} (PUT)', 'SUCCESS', 'Ticket updated', member_id)
         return jsonify({'message': 'Ticket updated successfully'}), 200
-    
+
+    except ValueError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event(f'/tickets/{ticket_id} (PUT)', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 400
+    except TicketIntegrityError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event(f'/tickets/{ticket_id} (PUT)', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 409
+    except TicketRepairUnavailableError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event(f'/tickets/{ticket_id} (PUT)', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 503
+    except MigrationIncompleteError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event(f'/tickets/{ticket_id} (PUT)', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 503
     except Exception as e:
         member_id = getattr(g, 'member_id', None)
         log_api_event(f'/tickets/{ticket_id} (PUT)', 'ERROR', str(e), member_id)
@@ -573,21 +1016,70 @@ def delete_ticket(ticket_id):
     """
     try:
         member_id = g.member_id
-        username = g.username
-        
-        query = "DELETE FROM tickets WHERE ticket_id = %s"
+        _ensure_ticket_writes_enabled()
+        resolved_ticket = _resolve_ticket_for_admin_action(
+            ticket_id,
+            member_id,
+            f'/tickets/{ticket_id} (DELETE)',
+        )
+        if not resolved_ticket:
+            log_api_event(f'/tickets/{ticket_id} (DELETE)', 'FAILED', 'Ticket not found in locator', member_id)
+            return jsonify({'error': 'Ticket not found'}), 404
+
+        shard_config = get_ticket_shard_config(resolved_ticket['shard_idx'])
         execute_write(
-            query,
+            "DELETE FROM ticket_locator WHERE ticket_id = %s",
             (ticket_id,),
             audit_context={
                 'actor_member_id': member_id,
-                'endpoint': f'/tickets/{ticket_id} (DELETE)'
-            }
+                'endpoint': f'/tickets/{ticket_id} (DELETE) - locator'
+            },
         )
+        try:
+            deleted_rows = execute_write(
+                "DELETE FROM tickets WHERE ticket_id = %s",
+                (ticket_id,),
+                audit_context={
+                    'actor_member_id': member_id,
+                    'endpoint': f'/tickets/{ticket_id} (DELETE)'
+                },
+                db_config=shard_config,
+            )
+            if not deleted_rows:
+                log_api_event(
+                    f'/tickets/{ticket_id} (DELETE)',
+                    'FAILED',
+                    'Ticket disappeared before delete completed',
+                    member_id,
+                )
+                return jsonify({'error': 'Ticket not found'}), 404
+        except Exception as shard_exc:
+            _upsert_ticket_locator(
+                ticket_id,
+                resolved_ticket['member_id'],
+                resolved_ticket['shard_idx'],
+                member_id,
+                f'/tickets/{ticket_id} (DELETE) - locator restore',
+            )
+            raise RuntimeError(
+                f'shard delete failed after locator delete; locator restored: {shard_exc}'
+            ) from shard_exc
         
         log_api_event(f'/tickets/{ticket_id} (DELETE)', 'SUCCESS', 'Ticket deleted', member_id)
         return jsonify({'message': 'Ticket deleted successfully'}), 200
     
+    except TicketIntegrityError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event(f'/tickets/{ticket_id} (DELETE)', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 409
+    except TicketRepairUnavailableError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event(f'/tickets/{ticket_id} (DELETE)', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 503
+    except MigrationIncompleteError as exc:
+        member_id = getattr(g, 'member_id', None)
+        log_api_event(f'/tickets/{ticket_id} (DELETE)', 'FAILED', str(exc), member_id)
+        return jsonify({'error': str(exc)}), 503
     except Exception as e:
         member_id = getattr(g, 'member_id', None)
         log_api_event(f'/tickets/{ticket_id} (DELETE)', 'ERROR', str(e), member_id)

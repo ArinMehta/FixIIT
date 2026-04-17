@@ -1,11 +1,6 @@
--- Module B Phase 2: create only the auth table needed for this module.
--- Existing project tables members, roles, member_roles are reused.
-
-CREATE DATABASE IF NOT EXISTS fixiit_db
-  DEFAULT CHARACTER SET utf8mb4
-  DEFAULT COLLATE utf8mb4_unicode_ci;
-
-USE fixiit_db;
+-- Module B coordinator schema.
+-- Existing project tables members, roles, member_roles, categories, locations,
+-- and statuses remain authoritative in the coordinator database.
 
 CREATE TABLE IF NOT EXISTS Credentials (
   member_id INT NOT NULL,
@@ -45,4 +40,30 @@ CREATE TABLE IF NOT EXISTS db_change_audit (
   changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_db_change_audit_source_changed_at (source, changed_at),
   INDEX idx_db_change_audit_table_pk (table_name, pk_value)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ticket_locator (
+  ticket_id INT NOT NULL,
+  member_id INT NOT NULL,
+  shard_idx TINYINT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (ticket_id),
+  KEY idx_ticket_locator_member_id (member_id),
+  KEY idx_ticket_locator_shard_idx (shard_idx),
+  CONSTRAINT chk_ticket_locator_shard_idx CHECK (shard_idx BETWEEN 0 AND 2),
+  CONSTRAINT fk_ticket_locator_member
+    FOREIGN KEY (member_id) REFERENCES members(member_id)
+    ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ticket_id_allocator (
+  ticket_id INT AUTO_INCREMENT PRIMARY KEY,
+  allocated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS migration_state (
+  migration_name VARCHAR(100) NOT NULL,
+  completed_at DATETIME NOT NULL,
+  PRIMARY KEY (migration_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

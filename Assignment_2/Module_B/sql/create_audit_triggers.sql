@@ -1,11 +1,9 @@
--- Module B audit triggers for DB-backed change tracking and tamper detection.
+-- Module B coordinator audit triggers.
 -- Logic:
 -- - If app sets @app_actor_member_id and @app_endpoint in the same connection:
 --     source = 'API'
 -- - Otherwise:
 --     source = 'DIRECT_DB'
-
-USE fixiit_db;
 
 DROP TRIGGER IF EXISTS trg_tickets_ai_audit;
 DROP TRIGGER IF EXISTS trg_tickets_au_audit;
@@ -13,6 +11,9 @@ DROP TRIGGER IF EXISTS trg_tickets_ad_audit;
 DROP TRIGGER IF EXISTS trg_member_portfolio_ai_audit;
 DROP TRIGGER IF EXISTS trg_member_portfolio_au_audit;
 DROP TRIGGER IF EXISTS trg_member_portfolio_ad_audit;
+DROP TRIGGER IF EXISTS trg_ticket_locator_ai_audit;
+DROP TRIGGER IF EXISTS trg_ticket_locator_au_audit;
+DROP TRIGGER IF EXISTS trg_ticket_locator_ad_audit;
 
 DELIMITER $$
 
@@ -207,6 +208,93 @@ BEGIN
             'skills', OLD.skills,
             'github_url', OLD.github_url,
             'linkedin_url', OLD.linkedin_url,
+            'updated_at', OLD.updated_at
+        ),
+        NULL,
+        NOW()
+    );
+END$$
+
+CREATE TRIGGER trg_ticket_locator_ai_audit
+AFTER INSERT ON ticket_locator
+FOR EACH ROW
+BEGIN
+    INSERT INTO db_change_audit (
+        table_name, operation, pk_value, actor_member_id, endpoint, source,
+        before_json, after_json, changed_at
+    )
+    VALUES (
+        'ticket_locator',
+        'INSERT',
+        CAST(NEW.ticket_id AS CHAR),
+        @app_actor_member_id,
+        @app_endpoint,
+        CASE WHEN @app_actor_member_id IS NULL OR @app_endpoint IS NULL THEN 'DIRECT_DB' ELSE 'API' END,
+        NULL,
+        JSON_OBJECT(
+            'ticket_id', NEW.ticket_id,
+            'member_id', NEW.member_id,
+            'shard_idx', NEW.shard_idx,
+            'created_at', NEW.created_at,
+            'updated_at', NEW.updated_at
+        ),
+        NOW()
+    );
+END$$
+
+CREATE TRIGGER trg_ticket_locator_au_audit
+AFTER UPDATE ON ticket_locator
+FOR EACH ROW
+BEGIN
+    INSERT INTO db_change_audit (
+        table_name, operation, pk_value, actor_member_id, endpoint, source,
+        before_json, after_json, changed_at
+    )
+    VALUES (
+        'ticket_locator',
+        'UPDATE',
+        CAST(NEW.ticket_id AS CHAR),
+        @app_actor_member_id,
+        @app_endpoint,
+        CASE WHEN @app_actor_member_id IS NULL OR @app_endpoint IS NULL THEN 'DIRECT_DB' ELSE 'API' END,
+        JSON_OBJECT(
+            'ticket_id', OLD.ticket_id,
+            'member_id', OLD.member_id,
+            'shard_idx', OLD.shard_idx,
+            'created_at', OLD.created_at,
+            'updated_at', OLD.updated_at
+        ),
+        JSON_OBJECT(
+            'ticket_id', NEW.ticket_id,
+            'member_id', NEW.member_id,
+            'shard_idx', NEW.shard_idx,
+            'created_at', NEW.created_at,
+            'updated_at', NEW.updated_at
+        ),
+        NOW()
+    );
+END$$
+
+CREATE TRIGGER trg_ticket_locator_ad_audit
+AFTER DELETE ON ticket_locator
+FOR EACH ROW
+BEGIN
+    INSERT INTO db_change_audit (
+        table_name, operation, pk_value, actor_member_id, endpoint, source,
+        before_json, after_json, changed_at
+    )
+    VALUES (
+        'ticket_locator',
+        'DELETE',
+        CAST(OLD.ticket_id AS CHAR),
+        @app_actor_member_id,
+        @app_endpoint,
+        CASE WHEN @app_actor_member_id IS NULL OR @app_endpoint IS NULL THEN 'DIRECT_DB' ELSE 'API' END,
+        JSON_OBJECT(
+            'ticket_id', OLD.ticket_id,
+            'member_id', OLD.member_id,
+            'shard_idx', OLD.shard_idx,
+            'created_at', OLD.created_at,
             'updated_at', OLD.updated_at
         ),
         NULL,

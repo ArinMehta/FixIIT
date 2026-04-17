@@ -1,399 +1,312 @@
-# FixIIT Module B - Campus Maintenance System
+# FixIIT Module B - Assignment 4 Sharding
 
-A Flask-based web application for managing campus maintenance requests with role-based access control (RBAC), audit logging, and ticket management.
+This Module B backend now implements Assignment 4 sharding with a minimal-risk design that keeps the existing Flask + `mysql-connector` structure intact.
 
-## Table of Contents
+## Sharding Design
 
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Database Setup](#database-setup)
-- [Configuration](#configuration)
-- [Running the Application](#running-the-application)
-- [API Endpoints](#api-endpoints)
-- [Demo Credentials](#demo-credentials)
-- [Important Notes Before Running](#important-notes-before-running)
+- Only the `tickets` table is sharded.
+- All other tables remain unsharded in one coordinator database.
+- The shard key is `member_id`.
+- Partitioning strategy is hash-based sharding across 3 shards.
+- Canonical routing formula:
 
----
+```text
+shard_idx = (member_id - 1) % 3
+```
+
+- Canonical shard mapping:
+
+```text
+shard_0 -> port 3307
+shard_1 -> port 3308
+shard_2 -> port 3309
+```
+
+- The coordinator database stores:
+  - `members`
+  - `roles`
+  - `member_roles`
+  - `categories`
+  - `locations`
+  - `statuses`
+  - `Credentials`
+  - `member_portfolio`
+  - `ticket_locator`
+  - coordinator `db_change_audit`
+- Each ticket shard stores:
+  - shard-local `tickets`
+  - shard-local `db_change_audit`
+
+## Why `member_id` Was Chosen
+
+- `GET /tickets` is member-scoped, so routing by `member_id` guarantees one-shard reads.
+- All tickets for one member stay on one shard.
+- The routing function is deterministic and simple to demonstrate in coursework.
+- `ticket_id` is not used as the shard key because admin update/delete resolve through `ticket_locator`, which remains correct after migration and for preserved legacy IDs.
+
+## Coordinator Role
+
+- The coordinator database is the authority for all unsharded reference tables and authentication data.
+- `ticket_locator(ticket_id, member_id, shard_idx, timestamps...)` is the central lookup table for ticket-id based admin operations.
+- The coordinator also owns `ticket_id_allocator`, which issues all new live `ticket_id` values globally.
+- Cross-shard foreign keys are not used for sharded tickets.
+- Ticket write validation is performed in application logic against coordinator tables before inserts and admin updates.
+
+## API Routing Rules
+
+- `POST /tickets`
+  - derives `member_id` from the authenticated user
+  - validates member/location/category/status against coordinator tables
+  - allocates a globally unique `ticket_id` from the coordinator
+  - inserts into the shard given by `(member_id - 1) % 3`
+  - writes `ticket_locator`
+  - compensates by deleting the just-inserted shard row if locator insert fails
+- `GET /tickets`
+  - queries exactly one shard using authenticated `member_id`
+- `PUT /tickets/<ticket_id>`
+  - resolves shard from `ticket_locator`
+  - updates only that shard
+- `DELETE /tickets/<ticket_id>`
+  - resolves shard from `ticket_locator`
+  - deletes from that shard and then deletes the locator row
+- `GET /admin/tickets`
+  - scatter-gathers across all 3 ticket shards
+  - merges results deterministically by `created_at DESC, ticket_id DESC`
+  - supports optional filters:
+    - `created_from`
+    - `created_to`
+    - `ticket_id_min`
+    - `ticket_id_max`
+
+## Audit / Tamper Handling
+
+- Coordinator audit triggers now cover:
+  - `member_portfolio`
+  - `ticket_locator`
+- Ticket audit triggers moved to shard-local trigger scripts so ticket writes are audited where the ticket row actually lives.
+- `/admin/tamper-events` now aggregates suspicious `DIRECT_DB` events from:
+  - the coordinator audit table
+  - all 3 shard audit tables
+- This keeps ticket tamper detection correct after sharding.
 
 ## Prerequisites
 
-- **Python**: 3.8 or higher
-- **MySQL**: 5.7 or higher (or compatible version)
-- **pip**: Python package installer
+- Python 3.8+
+- MySQL instances reachable on:
+  - coordinator port `3306` by default
+  - ticket shard ports `3307`, `3308`, `3309`
+- The original Module A schema/data import file: `Track1_Assignment1_ModuleA.sql`
 
-Verify installed versions:
-```bash
-python --version
-python3 --version
-mysql --version
-```
+## Environment Configuration
 
----
-
-## Installation
-
-### 1. Create and Activate Virtual Environment
+Create `.env` inside `Assignment_2/Module_B` and set the coordinator plus shard connection details:
 
 ```bash
-# Navigate to Module_B directory
-cd /Users/sohamshrivastava/Desktop/Database_project/FixIIT/Module_B
-
-# Create virtual environment
-python3 -m venv myenv
-
-# Activate virtual environment (macOS/Linux)
-source myenv/bin/activate
-
-# Activate virtual environment (Windows)
-myenv\Scripts\activate
-```
-
-### 2. Install Python Dependencies
-
-```bash
-# Install from requirements.txt
-pip install -r requirements.txt
-
-# Or manually install key packages
-pip install flask==2.3.3
-pip install pyjwt==2.8.1
-pip install mysql-connector-python==8.0.33
-python-dotenv==1.0.0
-```
-
----
-
-## Database Setup
-
-### 1. Start MySQL Service
-
-Start your MySQL server
-
-### 2. Verify MySQL Connection
-
-Test your MySQL connection with the credentials you'll use in `.env`:
-
-```bash
-# Test connection to your MySQL server
-mysql -h 127.0.0.1 -u root -p -e "SELECT 1;"
-```
-
-If this fails, ensure MySQL is running on your system before proceeding.
-
-### 3. Set Up Environment Configuration
-
-Create `.env` file in Module_B directory (copy from `.env_demo` if needed):
-
-```bash
-# Copy demo config
-cp .env_demo .env
-
-# Edit .env with your MySQL credentials
-DB_HOST=localhost
+DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=your_mysql_password
 DB_NAME=fixiit_db
+
+TICKET_SHARD_0_DB_HOST=127.0.0.1
+TICKET_SHARD_0_DB_PORT=3307
+TICKET_SHARD_0_DB_USER=root
+TICKET_SHARD_0_DB_PASSWORD=your_mysql_password
+TICKET_SHARD_0_DB_NAME=fixiit_ticket_shard_0
+
+TICKET_SHARD_1_DB_HOST=127.0.0.1
+TICKET_SHARD_1_DB_PORT=3308
+TICKET_SHARD_1_DB_USER=root
+TICKET_SHARD_1_DB_PASSWORD=your_mysql_password
+TICKET_SHARD_1_DB_NAME=fixiit_ticket_shard_1
+
+TICKET_SHARD_2_DB_HOST=127.0.0.1
+TICKET_SHARD_2_DB_PORT=3309
+TICKET_SHARD_2_DB_USER=root
+TICKET_SHARD_2_DB_PASSWORD=your_mysql_password
+TICKET_SHARD_2_DB_NAME=fixiit_ticket_shard_2
+
+# Optional legacy source override for migration.
+LEGACY_TICKET_SOURCE_DB_HOST=127.0.0.1
+LEGACY_TICKET_SOURCE_DB_PORT=3306
+LEGACY_TICKET_SOURCE_DB_USER=root
+LEGACY_TICKET_SOURCE_DB_PASSWORD=your_mysql_password
+LEGACY_TICKET_SOURCE_DB_NAME=fixiit_db
 ```
 
-### 4. Create Database and Tables
+The migration script first reads from the legacy monolithic `tickets` table if available. If that table is unavailable, it falls back to the checked-in ticket seed section inside `Track1_Assignment1_ModuleA.sql`.
 
-**Option A: Run all SQL files in order**
+## Setup and Migration
+
+### 1. Install dependencies
 
 ```bash
-# Navigate to Module_B SQL directory
-cd /Users/sohamshrivastava/Desktop/Database_project/FixIIT
-
-# Import main FixIIT schema (Module A)
-mysql -h 127.0.0.1 -u root -p"your_mysql_password" < Track1_Assignment1_ModuleA.sql
-
-# Import Module B specific tables
-cd Module_B
-mysql -h 127.0.0.1 -u root -p"your_mysql_password" < sql/create_tables.sql
-
-# Insert sample data
-mysql -h 127.0.0.1 -u root -p"your_mysql_password" < sql/insert_sample_data.sql
-
-# (Optional) Create indexes for performance
-mysql -h 127.0.0.1 -u root -p"your_mysql_password" < sql/create_indexes.sql
+cd /Users/arinmehta/Documents/GitHub/FixIIT/Assignment_2/Module_B
+python3 -m venv myenv
+source myenv/bin/activate
+pip install -r requirements.txt
 ```
 
-**Option B: Verify database is set up**
+### 2. Import the original coordinator schema/data
 
 ```bash
-# Check if database exists
-mysql -h 127.0.0.1 -u root -p"your_mysql_password" -e "SHOW DATABASES;"
-
-# Check tables in fixiit_db
-mysql -h 127.0.0.1 -u root -p"your_mysql_password" -e "USE fixiit_db; SHOW TABLES;"
+cd /Users/arinmehta/Documents/GitHub/FixIIT
+mysql -h 127.0.0.1 -P 3306 -u root -p < Track1_Assignment1_ModuleA.sql
 ```
 
-### 5. Verify Database Setup
+This creates the original unsharded coordinator schema and provides the monolithic `tickets` source data used for migration.
 
-If you encounter any issues, check your MySQL:
+### 3. Create coordinator Module B tables and all ticket shard tables
 
 ```bash
-# Verify database exists
-mysql -h 127.0.0.1 -u root -p -e "SHOW DATABASES;"
-
-# Check all required tables are present
-mysql -h 127.0.0.1 -u root -p -e "USE fixiit_db; SHOW TABLES;"
-
-# Verify sample data (credentials) exist
-mysql -h 127.0.0.1 -u root -p -e "USE fixiit_db; SELECT * FROM Credentials;"
+cd /Users/arinmehta/Documents/GitHub/FixIIT/Assignment_2/Module_B
+source myenv/bin/activate
+python3 scripts/setup_sharded_databases.py
 ```
 
-**Ensure:**
-- MySQL service is running on your system
-- Database `fixiit_db` exists with all tables
-- Sample data has been inserted (demo users available)
-- `.env` file contains correct MySQL credentials
+This script:
 
----
+- creates the coordinator `Credentials`, `member_portfolio`, `ticket_locator`, and audit tables
+- inserts Module B sample credentials/profile data
+- installs coordinator audit triggers
+- creates shard-local `tickets` and audit tables on ports `3307`, `3308`, `3309`
+- installs shard-local ticket audit triggers
 
-## Configuration
-
-### Environment Variables (.env)
+### 4. Migrate monolithic tickets into shards
 
 ```bash
-# Database connection
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=your_secure_password
-DB_NAME=fixiit_db
-
-# Flask app settings (optional, defaults are in config.py)
-APP_PORT=5000
+cd /Users/arinmehta/Documents/GitHub/FixIIT/Assignment_2/Module_B
+source myenv/bin/activate
+python3 scripts/migrate_tickets_to_shards.py
 ```
 
-### Flask Configuration (config.py)
+This migration:
 
-Key settings:
-- `DEBUG = True` (development mode, auto-reload)
-- `SECRET_KEY` = Your Flask secret (change in production)
-- `JWT_SECRET` = Your JWT signing secret (change in production)
-- `JWT_EXPIRY_HOURS = 24` (token expiration)
+- preserves `ticket_id`
+- computes target shard from `member_id`
+- inserts into the correct shard
+- writes `ticket_locator`
+- detects `ticket_id` conflicts on the wrong shard and aborts clearly
+- advances the coordinator `ticket_id_allocator` to `MAX(migrated ticket_id) + 1`
 
----
-
-## Running the Application
-
-### 1. Activate Virtual Environment
+### 5. Run the Flask app
 
 ```bash
-cd /Users/sohamshrivastava/Desktop/Database_project/FixIIT/Module_B
-source myenv/bin/activate  # macOS/Linux
-# or
-myenv\Scripts\activate     # Windows
+cd /Users/arinmehta/Documents/GitHub/FixIIT/Assignment_2/Module_B
+source myenv/bin/activate
+python3 run.py
 ```
 
-### 2. Start Flask Development Server
+## Verification
+
+Run the included verification script after migration:
 
 ```bash
-# Basic run
-python run.py
-
-# With specific port
-python run.py --port 5001
-
-# With environment variables
-export FLASK_ENV=development
-export FLASK_DEBUG=1
-python run.py
+cd /Users/arinmehta/Documents/GitHub/FixIIT/Assignment_2/Module_B
+source myenv/bin/activate
+python3 scripts/verify_ticket_shards.py
 ```
 
-You should see:
-```
- * Running on http://127.0.0.1:5000
- * Debug mode: on
- * Debugger PIN: XXX-XXX-XXX
-```
+The script checks:
 
-### 3. Access the Application
+- total source ticket count equals total tickets across all shards
+- no duplicate `ticket_id` exists across shards
+- every ticket is on the shard defined by `(member_id - 1) % 3`
+- all tickets for one member are on one shard
+- `GET /tickets` stays single-shard logically
+- admin update/delete resolve the shard through `ticket_locator`
+- `GET /admin/tickets` range filters merge cross-shard rows correctly
 
-- **Login Page**: http://127.0.0.1:5000/login
-- **Dashboard**: http://127.0.0.1:5000/dashboard (after login)
-- **Profile**: http://127.0.0.1:5000/portfolio (after login)
-- **Admin Panel**: http://127.0.0.1:5000/admin (admin users only)
+## Useful Manual API Checks
 
-### 4. Stop the Server
+### Login
 
-```bash
-# Press CTRL+C in terminal
-```
-
----
-
-## API Endpoints
-
-### Authentication
-
-**Login (POST)**
 ```bash
 curl -X POST http://127.0.0.1:5000/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin123"}'
 ```
 
-**Check Auth Status (GET)**
-```bash
-curl -X GET http://127.0.0.1:5000/isAuth \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
+### Member ticket read
 
-### Portfolio/Profile Management
-
-**Get Profile (GET)**
-```bash
-curl -X GET http://127.0.0.1:5000/portfolio/me \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-**Update Profile (PUT)**
-```bash
-curl -X PUT http://127.0.0.1:5000/portfolio/me \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "name":"John Doe",
-    "email":"john@example.com",
-    "contact_number":"1234567890",
-    "address":"City, State",
-    "bio":"My bio here",
-    "skills":"skill1,skill2",
-    "github_url":"https://github.com/username",
-    "linkedin_url":"https://linkedin.com/in/username",
-    "current_password":"oldpass123",
-    "new_password":"newpass123"
-  }'
-```
-
-### Tickets
-
-**Get All User Tickets (GET)**
 ```bash
 curl -X GET http://127.0.0.1:5000/tickets \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
-**Create Ticket (POST)**
+### Ticket creation
+
 ```bash
 curl -X POST http://127.0.0.1:5000/tickets \
-  -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{
+    "title":"AC issue",
+    "description":"AC not cooling",
     "location_id":1,
-    "category_id":2,
-    "description":"Issue description here"
+    "category_id":3,
+    "priority":"High"
   }'
 ```
 
-**Get All Tickets (Admin) (GET)**
+### Cross-shard admin listing with filters
+
 ```bash
-curl -X GET http://127.0.0.1:5000/admin/tickets \
+curl -X GET "http://127.0.0.1:5000/admin/tickets?created_from=2026-01-15&created_to=2026-01-17&ticket_id_min=3&ticket_id_max=15" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
----
+### Tamper-event aggregation
+
+```bash
+curl -X GET http://127.0.0.1:5000/admin/tamper-events \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
 
 ## Demo Credentials
 
-### User Account (Regular Member)
-- **Username**: `user`
-- **Password**: `user123`
-- **Member ID**: 2
+- Admin
+  - username: `admin`
+  - password: `admin123`
+- User
+  - username: `user`
+  - password: `user123`
 
-### Admin Account (Administrator)
-- **Username**: `admin`
-- **Password**: `admin123`
-- **Member ID**: 28
+## Files Added for Sharding
 
-**Test Login:**
-```bash
-curl -X POST http://127.0.0.1:5000/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"user","password":"user123"}'
-```
+- `app/sharding.py`
+- `app/ticket_source.py`
+- `sql/create_ticket_shard_tables.sql`
+- `sql/create_ticket_shard_audit_triggers.sql`
+- `scripts/setup_sharded_databases.py`
+- `scripts/migrate_tickets_to_shards.py`
+- `scripts/verify_ticket_shards.py`
 
----
+## Limitations and Trade-offs
 
-## Important Notes Before Running
+### Horizontal vs vertical scaling
 
-### ✅ Prerequisites Checklist
+- Ticket write/read load now scales horizontally across 3 ticket shards.
+- Unsharded coordinator tables still scale vertically because they remain centralized.
 
-1. **MySQL Service Running**
-   - Ensure MySQL is started and running on your system
-   - Verify it's accessible at `localhost:3306`
-   - If you encounter connection issues, check your MySQL installation
+### Consistency
 
-2. **Database Schema Exists**
-   - The database `fixiit_db` should already be created from running the SQL files
-   - All required tables should be present (members, tickets, categories, locations, roles, Credentials, member_portfolio, etc.)
-   - Verify by running:
-     ```bash
-     mysql -h 127.0.0.1 -u root -p -e "USE fixiit_db; SHOW TABLES;"
-     ```
+- Ticket writes are split between a shard row and a coordinator `ticket_locator` row.
+- The implementation uses explicit compensation on `POST /tickets` if locator insert fails after the shard insert.
+- There is no distributed transaction manager; this is intentionally kept simple for coursework.
 
-3. **Environment File (.env) Created**
-   - Create `.env` file in Module_B directory with your MySQL password:
-     ```bash
-     DB_HOST=localhost
-     DB_PORT=3306
-     DB_USER=root
-     DB_PASSWORD=your_actual_mysql_password
-     DB_NAME=fixiit_db
-     ```
-   - **Never commit .env to version control** - it contains sensitive credentials
-   - The app will read credentials from this file on startup
+### Availability
 
-4. **Sample Data Inserted**
-   - Demo user credentials should be in the `Credentials` table:
-     - Username: `user`, Password: `user123` (member_id: 2)
-     - Username: `admin`, Password: `admin123` (member_id: 28)
-   - Verify with: `mysql -h 127.0.0.1 -u root -p -e "USE fixiit_db; SELECT * FROM Credentials;"`
+- Coordinator availability remains critical because authentication, reference validation, RBAC, and `ticket_locator` all depend on it.
+- Ticket shard availability affects only the members routed to that shard plus cross-shard admin ticket views.
 
----
+### Partition tolerance
 
-## Project Structure
+- A network partition between the app and any ticket shard will block ticket operations for members mapped to that shard.
+- A coordinator partition blocks all authenticated ticket operations because validation and locator resolution depend on the coordinator.
 
-```
-Module_B/
-├── app/                      # Flask application
-│   ├── __init__.py          # App factory
-│   ├── api.py               # API routes
-│   ├── auth.py              # JWT authentication
-│   ├── database.py          # Database queries
-│   ├── models.py            # Data models
-│   ├── audit_logger.py      # Audit logging
-│   ├── rbac.py              # Role-based access control
-├── templates/               # HTML templates
-│   ├── login.html
-│   ├── dashboard.html
-│   ├── portfolio.html
-│   ├── admin.html
-├── static/                  # CSS/JS assets
-│   ├── style.css
-├── sql/                     # Database setup scripts
-│   ├── create_tables.sql
-│   ├── insert_sample_data.sql
-│   ├── create_indexes.sql
-│   ├── create_audit_triggers.sql
-├── logs/                    # Application logs
-├── config.py                # Flask configuration
-├── run.py                   # Entry point
-├── requirements.txt         # Python dependencies
-├── .env                     # Environment variables (create from .env_demo)
-└── README.md                # This file
-```
+### Why app-level validation replaced ticket foreign keys
 
----
-
-## Support
-
-For issues or questions:
-1. Check the **Important Notes Before Running** section - ensure MySQL is running and schema is set up
-2. Verify your `.env` file has correct MySQL credentials
-3. Check that all SQL files were imported successfully
-4. Review Flask/MySQL documentation
-5. Check audit logs in `logs/audit.log` for application errors
+- Shard-local `tickets` rows cannot safely retain foreign keys to coordinator tables across separate MySQL instances.
+- The backend therefore validates `member_id`, `location_id`, `category_id`, and `status_id` in application logic before ticket writes.
+- This preserves correctness for the coursework design without introducing cross-database foreign-key coupling.

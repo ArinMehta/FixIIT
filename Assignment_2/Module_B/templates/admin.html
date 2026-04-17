@@ -237,10 +237,11 @@
 
             const html = events.map(event => `
                 <div class="ticket-card">
-                    <h3>Audit #${event.id} - ${event.operation} on ${escapeHtml(event.table_name)}</h3>
+                    <h3>Audit ${escapeHtml(String(event.event_id || event.id || '-'))} - ${event.operation} on ${escapeHtml(event.table_name)}</h3>
                     <div class="ticket-meta">
                         <span>PK: ${escapeHtml(String(event.pk_value || ''))}</span>
-                        <span>Source: ${escapeHtml(event.source || '-')}</span>
+                        <span>DB: ${escapeHtml(event.source_name || '-')}</span>
+                        <span>Audit Source: ${escapeHtml(event.source || '-')}</span>
                         <span>At: ${event.changed_at ? new Date(event.changed_at).toLocaleString() : '-'}</span>
                     </div>
                     <div class="ticket-description">
