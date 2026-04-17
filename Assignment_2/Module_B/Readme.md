@@ -134,7 +134,7 @@ LEGACY_TICKET_SOURCE_DB_PASSWORD=your_mysql_password
 LEGACY_TICKET_SOURCE_DB_NAME=fixiit_db
 ```
 
-The migration script first reads from the legacy monolithic `tickets` table if available. If that table is unavailable, it falls back to the checked-in ticket seed section inside `Track1_Assignment1_ModuleA.sql`.
+The migration script first reads from the legacy monolithic `tickets` table if available. If the legacy source database is reachable but the `tickets` table is absent, it falls back to the checked-in ticket seed section inside `Track1_Assignment1_ModuleA.sql`. Other legacy DB failures are treated as explicit errors.
 
 ## Setup and Migration
 

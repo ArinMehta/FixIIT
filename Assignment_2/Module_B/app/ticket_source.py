@@ -25,7 +25,7 @@ SOURCE_TICKET_COLUMNS = [
 
 
 def _load_tickets_from_db():
-    """Load source tickets from the configured legacy monolith DB if present."""
+    """Load source tickets from the configured legacy DB when it is reachable."""
     connection = None
     try:
         connection = get_connection(db_config=LEGACY_TICKET_SOURCE_DB_CONFIG)
@@ -60,7 +60,7 @@ def _load_tickets_from_db():
 
 
 def _load_tickets_from_sql_seed():
-    """Parse the Track1 SQL seed file as a fallback migration source."""
+    """Parse the Track1 SQL seed file as fallback when legacy tickets table is absent."""
     sql_path = Path(SOURCE_TICKET_SQL_PATH)
     if not sql_path.exists():
         raise FileNotFoundError(f"Ticket seed SQL not found at {sql_path}")

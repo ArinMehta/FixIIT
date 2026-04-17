@@ -40,6 +40,18 @@ def _existing_ticket_shards(ticket_id):
     return hits
 
 
+def _existing_ticket_locator(ticket_id):
+    """Return the existing locator row for ticket_id, if present."""
+    return fetch_one(
+        """
+        SELECT ticket_id, member_id, shard_idx
+        FROM ticket_locator
+        WHERE ticket_id = %s
+        """,
+        (ticket_id,),
+    )
+
+
 def _sync_global_ticket_id_allocator(source_rows):
     """Advance the coordinator ticket_id allocator past all migrated ticket_ids."""
     max_source_ticket_id = max(int(row["ticket_id"]) for row in source_rows) if source_rows else 0
@@ -48,20 +60,24 @@ def _sync_global_ticket_id_allocator(source_rows):
 
 
 def _collect_conflicts(source_rows):
-    """Detect wrong-shard ticket_id conflicts before performing any writes."""
+    """Detect any pre-existing ticket_id collisions before performing writes."""
     conflicts = []
     for row in source_rows:
         ticket_id = int(row["ticket_id"])
         member_id = int(row["member_id"])
         shard_idx = shard_for_member(member_id)
         existing_shards = _existing_ticket_shards(ticket_id)
+        existing_locator = _existing_ticket_locator(ticket_id)
 
-        if any(existing_shard != shard_idx for existing_shard in existing_shards):
+        if existing_shards or existing_locator:
             conflicts.append(
                 {
                     "ticket_id": ticket_id,
                     "target_shard": shard_idx,
                     "existing_shards": existing_shards,
+                    "existing_locator_shard": (
+                        int(existing_locator["shard_idx"]) if existing_locator else None
+                    ),
                 }
             )
 
@@ -83,8 +99,11 @@ def main():
                     f"ticket_id={conflict['ticket_id']}",
                     f"target_shard={conflict['target_shard']}",
                     f"existing_shards={conflict['existing_shards']}",
+                    f"existing_locator_shard={conflict['existing_locator_shard']}",
                 )
-            raise SystemExit("Migration aborted because duplicate ticket_ids exist on the wrong shard.")
+            raise SystemExit(
+                "Migration aborted because pre-existing ticket_id collisions were found in the target state."
+            )
 
         shard_counts = Counter()
 
@@ -101,16 +120,6 @@ def main():
                     priority, status_id, created_at, updated_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    title = VALUES(title),
-                    description = VALUES(description),
-                    member_id = VALUES(member_id),
-                    location_id = VALUES(location_id),
-                    category_id = VALUES(category_id),
-                    priority = VALUES(priority),
-                    status_id = VALUES(status_id),
-                    created_at = VALUES(created_at),
-                    updated_at = VALUES(updated_at)
                 """,
                 (
                     ticket_id,
@@ -133,10 +142,6 @@ def main():
                     ticket_id, member_id, shard_idx, created_at, updated_at
                 )
                 VALUES (%s, %s, %s, NOW(), NOW())
-                ON DUPLICATE KEY UPDATE
-                    member_id = VALUES(member_id),
-                    shard_idx = VALUES(shard_idx),
-                    updated_at = NOW()
                 """,
                 (ticket_id, member_id, shard_idx),
                 audit_context=MIGRATION_AUDIT_CONTEXT,

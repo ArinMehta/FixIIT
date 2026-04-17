@@ -86,7 +86,7 @@ def _parse_positive_int(value, field_name):
 def _normalize_priority(value):
     """Validate one ticket priority against the existing allowed set."""
     if value is None:
-        return None
+        raise ValueError('priority cannot be null')
 
     text = str(value).strip()
     if text not in VALID_PRIORITIES:
