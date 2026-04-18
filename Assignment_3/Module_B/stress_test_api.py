@@ -305,7 +305,6 @@ def run_race_condition_test(total_requests: int = 50, workers: int = 16,
     print(f"\n[Race Condition Test] {total_requests} requests, {workers} workers, same ticket")
     
     # First, create a test ticket
-    # First, create a test ticket
     client = APIClient()
     login_success = client.login(username, password)
     print(f"  Login success: {login_success}")

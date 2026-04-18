@@ -94,9 +94,12 @@ def _load_tickets_from_sql_seed():
     return rows
 
 
+# def load_source_tickets():
+    # """Load monolithic ticket source rows for migration or verification."""
+    # rows = _load_tickets_from_db()
+    # if rows is not None:
+    #     return rows, "legacy_db"
+    # return _load_tickets_from_sql_seed(), "track1_sql_seed"
+
 def load_source_tickets():
-    """Load monolithic ticket source rows for migration or verification."""
-    rows = _load_tickets_from_db()
-    if rows is not None:
-        return rows, "legacy_db"
     return _load_tickets_from_sql_seed(), "track1_sql_seed"

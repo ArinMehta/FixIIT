@@ -15,9 +15,9 @@ Prerequisites:
    cd Assignment_2/Module_B && python run.py
 
 2. Run Locust:
-   locust -f locustfile.py --host=http://localhost:5000
+   locust -f locustfile.py --host=http://127.0.0.1:5000
 
-3. Open Web UI: http://localhost:8089
+3. Open Web UI: http://127.0.0.1:8089
 """
 
 from __future__ import annotations
@@ -328,14 +328,14 @@ RUNNING TESTS:
 
   Web UI Mode (recommended for interactive testing):
   --------------------------------------------------
-  locust -f locustfile.py --host=http://localhost:5000
+  locust -f locustfile.py --host=http://127.0.0.1:5000
   
-  Then open: http://localhost:8089
+  Then open: http://127.0.0.1:8089
   Configure users and spawn rate in the web UI.
 
   Headless Mode (for automated testing):
   --------------------------------------
-  locust -f locustfile.py --host=http://localhost:5000 \\
+  locust -f locustfile.py --host=http://127.0.0.1:5000 \\
          --headless -u 50 -r 10 -t 60s --csv=results/locust
 
   Options:

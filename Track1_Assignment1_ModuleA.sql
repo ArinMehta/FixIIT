@@ -1,9 +1,20 @@
+-- SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,ONLY_FULL_GROUP_BY';
+
+-- CREATE DATABASE IF NOT EXISTS fixiit_db
+--   DEFAULT CHARACTER SET utf8mb4
+--   DEFAULT COLLATE utf8mb4_unicode_ci;
+-- USE fixiit_db;
+
 SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,ONLY_FULL_GROUP_BY';
 
-CREATE DATABASE IF NOT EXISTS fixiit_db
-  DEFAULT CHARACTER SET utf8mb4
-  DEFAULT COLLATE utf8mb4_unicode_ci;
-USE fixiit_db;
+-- Commenting this out because the university already created the database for us
+-- CREATE DATABASE IF NOT EXISTS fixiit_db
+--   DEFAULT CHARACTER SET utf8mb4
+--   DEFAULT COLLATE utf8mb4_unicode_ci;
+
+-- Use our assigned team database
+USE Codebase;
+
 
 DROP TABLE IF EXISTS feedback;
 DROP TABLE IF EXISTS assignments;
